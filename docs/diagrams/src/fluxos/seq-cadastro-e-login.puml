@@ -1,0 +1,63 @@
+@startuml seq-cadastro-e-login
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Cadastro, autenticação e credencial de API do lojista
+
+actor "Lojista" as L
+box "Pixeth" #F4F7FB
+  participant "Aplicação web" as Web
+  participant "Keycloak" as KC
+  participant "API" as API
+  database "Banco" as DB
+end box
+participant "IdentityStore" as IDS
+participant "Sistema do lojista" as SL
+
+== Cadastro ==
+L -> Web : "Criar conta"
+Web -> KC : redireciona para o registro\n(Authorization Code + PKCE)
+L -> KC : e-mail, senha e MFA (TOTP)
+KC -> Web : authorization code
+Web -> KC : code + code_verifier
+KC --> Web : access token, refresh token, ID token
+L -> Web : nome de exibição, nome/razão social, CPF/CNPJ
+Web -> API : POST /v1/merchants — Bearer
+API -> API : valida o JWT (JWKS), lê o sub e gera o merchantId
+API -> IDS : PUT /v1/owners/{merchantId}\n{legalName, document} — mTLS
+IDS --> API : 201
+API -> DB : INSERT merchants (subject_id = sub)\nON CONFLICT (subject_id) DO NOTHING
+API --> Web : 201 {merchantId}
+note over KC, IDS
+  E-mail e senha ficam no Keycloak; nome e documento, no IdentityStore.
+  O processador guarda só o sub e o merchantId (identificadores opacos).
+  Repetir o PUT no IdentityStore é seguro: o merchantId é escolhido pelo processador.
+end note
+
+== Autenticação nas visitas seguintes ==
+L -> Web : acessa o portal
+Web -> KC : Authorization Code + PKCE
+L -> KC : senha + MFA
+KC --> Web : tokens
+Web -> API : chamadas com Bearer
+note over KC
+  Redefinição de senha, bloqueio por tentativas
+  e sessões ficam a cargo do Keycloak.
+end note
+
+== Credencial de API ==
+L -> Web : "Nova credencial"
+Web -> API : POST /v1/merchants/{id}/api-clients
+API -> KC : Admin API: cria cliente confidencial\ncom o atributo merchant_id
+KC --> API : clientId + clientSecret
+API --> Web : clientId + clientSecret (exibido uma única vez)
+L -> SL : configura a credencial
+SL -> KC : POST /token (client_credentials)
+KC --> SL : access token com a claim merchant_id
+SL -> API : POST /v1/payments — Bearer
+note over API, KC
+  As credenciais vivem só no Keycloak;
+  o processador identifica o lojista pela claim do token.
+end note
+@enduml

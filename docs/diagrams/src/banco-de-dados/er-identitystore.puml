@@ -1,0 +1,35 @@
+@startuml er-identitystore
+!include ../_estilo.iuml
+
+title Banco do IdentityStore
+
+hide circle
+skinparam linetype ortho
+
+entity owners {
+  * ref : uuid <<PK>>
+  --
+  * legal_name_enc : bytea
+  * document_enc : bytea
+  * created_at : timestamptz
+}
+
+entity pix_keys {
+  * ref : uuid <<PK>>
+  --
+  * owner_ref : uuid <<FK>>
+  * type : text
+  * value_enc : bytea
+  * created_at : timestamptz
+}
+
+owners ||--o{ pix_keys
+
+note bottom of owners
+  Todos os dados pessoais do sistema estão aqui: nome,
+  CPF/CNPJ e chaves Pix. Campos *_enc são cifrados pela
+  aplicação, com chave do operador do IdentityStore.
+  ref = id do lojista no processador (referência opaca).
+  Eliminação (LGPD): apagar o titular e suas chaves.
+end note
+@enduml

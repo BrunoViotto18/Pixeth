@@ -1,0 +1,50 @@
+@startuml seq-inscricao-carteira
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Inscrição de carteira (Sign-In with Ethereum, EIP-4361)
+
+actor "Lojista" as L
+participant "MetaMask" as MM
+box "Pixeth" #F4F7FB
+  participant "Aplicação web" as Web
+  participant "API" as API
+  database "Banco" as DB
+end box
+
+L -> Web : "Adicionar carteira"
+Web -> MM : eth_requestAccounts
+MM --> Web : endereço 0xABC…
+Web -> API : POST /v1/merchants/{id}/wallet/challenge\n{address, chainId}
+API -> API : monta a mensagem EIP-4361 (nonce aleatório,\nexpira em 10 min) e a assina com HMAC
+API --> Web : mensagem + assinatura do servidor
+note right
+  pixeth.example wants you to sign in with your Ethereum account:
+  0xABC…
+  Vincular esta carteira ao lojista <id>.
+  URI: https://pixeth.example
+  Version: 1
+  Chain ID: 11155111
+  Nonce: 8f3k2j9d
+  Issued At: …
+  Expiration Time: …
+end note
+Web -> MM : personal_sign(mensagem)
+MM -> L : mostra a mensagem
+L -> MM : assina
+MM --> Web : assinatura da carteira
+Web -> API : PUT /v1/merchants/{id}/wallet\n{message, serverSignature, walletSignature}
+API -> API : confere a assinatura do servidor (mensagem não\nalterada), domínio, lojista e validade;\nrecupera o endereço da assinatura da carteira (Web3j)
+alt tudo confere
+  API -> DB : UPDATE merchants SET wallet_address = ?
+  API --> Web : 200
+else assinatura inválida ou mensagem expirada
+  API --> Web : 400
+end
+note over L, API
+  O desafio não é guardado no banco: a assinatura do servidor
+  garante que a mensagem foi emitida pelo Pixeth, e a validade
+  curta limita a reutilização. A chave privada nunca sai da MetaMask.
+end note
+@enduml

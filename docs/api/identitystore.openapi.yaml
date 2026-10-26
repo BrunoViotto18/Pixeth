@@ -1,0 +1,116 @@
+openapi: 3.1.0
+info:
+  title: Pixeth — contrato do IdentityStore
+  version: 0.3.0
+  summary: Interface que todo IdentityStore implementa para guardar as chaves Pix dos lojistas.
+  description: |
+    O IdentityStore é a parte descentralizada do Pixeth: qualquer operador pode hospedar um,
+    desde que implemente este contrato. Ele guarda o único dado pessoal do sistema, a chave
+    Pix do lojista (que muitas vezes é um CPF, telefone ou e-mail).
+
+    - **Autenticação:** somente mTLS, com certificado do processador emitido pela AC em que
+      o IdentityStore foi inscrito.
+    - **Autorização:** um processador só acessa chaves que ele mesmo gravou.
+    - **Idempotência:** `keyRef` e `ownerRef` são escolhidos pelo processador, então repetir
+      um `PUT` não duplica dados.
+    - **Cifragem:** o valor da chave fica cifrado em nível de aplicação.
+servers:
+  - url: https://{host}
+    variables:
+      host:
+        default: identity.example
+
+security:
+  - processorMtls: []
+
+paths:
+  /v1/pix-keys/{keyRef}:
+    parameters:
+      - name: keyRef
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: putPixKey
+      summary: Guardar chave Pix (idempotente)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerRef, type, value]
+              properties:
+                ownerRef:
+                  type: string
+                  format: uuid
+                  description: Identificador opaco do lojista no processador.
+                type: { type: string, enum: [CPF, CNPJ, EMAIL, PHONE, EVP] }
+                value: { type: string }
+      responses:
+        '201': { description: Guardada }
+        '200': { description: Já existia com o mesmo valor }
+    get:
+      operationId: getPixKey
+      summary: Obter chave Pix no momento de um envio
+      responses:
+        '200':
+          description: Chave
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [type, value]
+                properties:
+                  type: { type: string, enum: [CPF, CNPJ, EMAIL, PHONE, EVP] }
+                  value: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deletePixKey
+      summary: Remover chave Pix
+      responses:
+        '204': { description: Removida }
+
+  /v1/owners/{ownerRef}/pix-keys:
+    parameters:
+      - name: ownerRef
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: eraseOwner
+      summary: Eliminar todas as chaves de um lojista (LGPD)
+      responses:
+        '204': { description: Removidas }
+
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Saúde do serviço e validade do certificado
+      responses:
+        '200':
+          description: Disponível
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [UP, DEGRADED] }
+                  certificateNotAfter: { type: string, format: date-time }
+
+components:
+  securitySchemes:
+    processorMtls:
+      type: mutualTLS
+      description: 'Certificado do processador (urn:pixeth:processor:{deploymentId}) emitido pela AC da implantação.'
+
+  responses:
+    NotFound:
+      description: Inexistente ou gravada por outro processador
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              title: { type: string }
+              status: { type: integer }

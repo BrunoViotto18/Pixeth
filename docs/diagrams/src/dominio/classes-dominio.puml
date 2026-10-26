@@ -1,0 +1,119 @@
+@startuml classes-dominio
+!include ../_estilo.iuml
+
+title Modelo de domínio
+
+hide empty members
+
+class Money <<value>> {
+  amountMinor: BigInteger
+  asset: Asset
+}
+
+enum Asset {
+  BRL
+  ETH
+}
+
+class Merchant {
+  id: UUID
+  subjectId: String
+  displayName: String
+  walletAddress: String
+  pixKeyRef: UUID
+  pixKeyMasked: String
+  webhookUrl: String
+}
+
+class Payment {
+  id: UUID
+  direction: Direction
+  amount: Money
+  status: PaymentStatus
+  collectionReference: String
+  collectionInstructions: String
+  quote: Money
+  quoteExpiresAt: Instant
+  holdReleaseAt: Instant
+  medStatus: MedStatus
+  idempotencyKey: String
+  expiresAt: Instant
+}
+
+enum Direction {
+  PIX_TO_ETH
+  ETH_TO_PIX
+}
+
+enum PaymentStatus {
+  AWAITING_PAYMENT
+  PAID
+  CONVERTING
+  HELD
+  DELIVERING
+  COMPLETED
+  EXPIRED
+  REFUNDING
+  REFUNDED
+  REVERSED
+  FAILED
+}
+
+enum MedStatus {
+  OPEN
+  RECOVERED
+  NOT_RECOVERABLE
+  CLOSED
+}
+
+class Transaction <<imutável>> {
+  kind: TransactionKind
+  externalId: String
+  amount: Money
+  occurredAt: Instant
+}
+
+enum TransactionKind {
+  PIX_IN
+  PIX_OUT
+  PIX_REFUND
+  CHAIN_PAID
+  CHAIN_HELD
+  CHAIN_RELEASED
+  CHAIN_FORWARDED
+  CHAIN_REFUNDED
+  CHAIN_RECOVERED
+  CONVERSION
+}
+
+class Job {
+  type: String
+  dedupKey: String
+  status: JobStatus
+  attempts: int
+  runAt: Instant
+}
+
+class IdentityStoreNode {
+  id: UUID
+  baseUrl: String
+  status: NodeStatus
+  certificateNotAfter: Instant
+}
+
+Money --> Asset
+Merchant --> "1" IdentityStoreNode : chave Pix guardada em
+Merchant "1" -- "0..*" Payment
+Payment --> Direction
+Payment --> PaymentStatus
+Payment --> MedStatus
+Payment *-- "0..*" Transaction
+Payment "0..1" -- "0..*" Job
+Transaction --> TransactionKind
+
+note right of Transaction
+  Cada movimento de dinheiro, em qualquer trilho,
+  vira uma transação com o identificador externo
+  (endToEndId ou txHash): é a trilha de auditoria.
+end note
+@enduml

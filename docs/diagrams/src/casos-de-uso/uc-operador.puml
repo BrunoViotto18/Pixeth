@@ -1,0 +1,30 @@
+@startuml uc-operador
+!include ../_estilo.iuml
+
+title Casos de uso — Operador e processos automáticos
+
+left to right direction
+
+actor "Operador" as O
+actor "Tempo\n(agendadores)" as T
+
+rectangle "Pixeth" {
+  usecase "Inscrever IdentityStore" as UC_Inscrever
+  usecase "Revogar IdentityStore" as UC_Revogar
+  usecase "Acompanhar MEDs" as UC_Med
+  usecase "Recuperar valor retido\n(MED procedente)" as UC_Recuperar
+  usecase "Intervir em pagamento com falha" as UC_Intervir
+  usecase "Expirar cobranças e cotações" as UC_Expirar
+  usecase "Liberar retenções vencidas" as UC_Liberar
+  usecase "Reenviar webhooks com falha" as UC_Reenviar
+}
+
+O --> UC_Inscrever
+O --> UC_Revogar
+O --> UC_Med
+O --> UC_Intervir
+T --> UC_Expirar
+T --> UC_Liberar
+T --> UC_Reenviar
+UC_Recuperar ..> UC_Med : <<extend>>
+@enduml

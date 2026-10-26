@@ -1,0 +1,69 @@
+@startuml seq-pix-para-ethereum
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Pagamento Pix → Ethereum
+
+participant "Sistema do lojista" as SL
+actor "Pagador" as P
+participant "Banco do pagador" as BP
+box "Pixeth" #F4F7FB
+  participant "Checkout" as CO
+  participant "API" as API
+  database "Banco" as DB
+  participant "Workers" as W
+end box
+participant "PSP (API Pix)" as PSP
+participant "Provedor de conversão\n(simulado)" as PC
+participant "PixethGateway\n(Sepolia)" as GW
+
+== 1. Criação (síncrona e idempotente) ==
+SL -> API : POST /v1/payments {amount: "100.00 BRL",\ndirection: PIX_TO_ETH} — Bearer + Idempotency-Key
+API -> DB : pagamento com esta Idempotency-Key já existe? → devolve o existente (ou 422 se o corpo mudou)
+API -> DB : lojista tem carteira inscrita?
+API -> PSP : PUT /cob/{txid} {expiracao: 900, valor: "100.00"}
+note right
+  txid derivado do paymentId:
+  repetir o PUT é seguro.
+end note
+PSP --> API : pixCopiaECola
+API -> DB : INSERT payments (AWAITING_PAYMENT,\nidempotency_key, request_hash)
+API --> SL : 201 {paymentId, checkoutUrl, pixCopiaECola}
+
+== 2. Pagamento ==
+SL -> P : redireciona para o checkout
+P -> CO : vê o QR Code
+P -> BP : paga
+BP -> PSP : liquida pelo SPI
+
+== 3. Confirmação ==
+PSP -> API : webhook {endToEndId, txid} — mTLS
+API -> DB : INSERT jobs (ConfirmPix,\ndedup_key = pix:{endToEndId})\nON CONFLICT DO NOTHING
+API --> PSP : 200
+W -> PSP : GET /pix/{endToEndId}
+note right : o corpo do webhook não é usado como prova
+PSP --> W : valor, txid, horário
+W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT transactions (PIX_IN)\nINSERT jobs (Convert)\nCOMMIT
+
+== 4. Conversão e retenção ==
+W -> DB : CONVERTING
+W -> PC : converter R$ 100,00 em ETH para o pagamento
+PC -> GW : hold(paymentId, carteira do lojista,\nreleaseAt = agora + janela) {value: 0,0058 ETH}
+GW --> PC : evento Held
+PC --> W : txHash
+W -> GW : recibo + confirmações
+W -> DB : BEGIN\nHELD; hold_release_at\nINSERT transactions (CONVERSION, CHAIN_HELD)\nINSERT jobs (NotifyMerchant)\nCOMMIT
+W ->> SL : webhook payment.held
+
+alt conversão falhou
+  W -> PSP : PUT /pix/{endToEndId}/devolucao/{id}
+  W -> DB : REFUNDED + transactions (PIX_REFUND)
+  W ->> SL : webhook payment.refunded
+end
+
+note over W, GW
+  A liberação ao lojista e o tratamento de MED
+  estão em seq-liberacao-e-med.
+end note
+@enduml

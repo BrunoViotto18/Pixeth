@@ -1,0 +1,68 @@
+@startuml componentes-hexagonal
+!include ../_estilo.iuml
+
+title Arquitetura hexagonal do processador
+
+left to right direction
+
+package "Adaptadores de entrada" {
+  component "API REST\n(lojista e checkout)" as restApi
+  component "Webhooks do PSP" as pspWebhook
+  component "Inscrição de\nIdentityStores" as enrollApi
+  component "Ouvinte da blockchain" as chainListener
+  component "Executor de tarefas\n(SKIP LOCKED)" as jobRunner
+  component "Agendadores" as schedulers
+}
+
+package "Núcleo" {
+  component "Orquestrador de pagamentos" as orch
+  component "Lojistas e destinos" as merchants
+  component "AC da implantação" as pki
+  interface "PaymentRail" as IRail
+  interface "ConversionProvider" as IConv
+  interface "IdentityStore" as IIdentity
+  interface "MerchantNotifier" as INotifier
+  interface "JobQueue" as IJobs
+  interface "Repositórios" as IRepo
+}
+
+package "Adaptadores de saída" {
+  component "Trilho Pix\n(API Pix — Efí)" as pixRail
+  component "Trilho Ethereum\n(Web3j + PixethGateway)" as ethRail
+  component "Conversão simulada" as convMock
+  component "Cliente IdentityStore\n(mTLS)" as idClient
+  component "Webhooks assinados" as webhookOut
+  component "Tabela de tarefas\n(outbox)" as jobTable
+  component "Repositórios\n(PostgreSQL)" as jpa
+}
+
+restApi --> orch
+restApi --> merchants
+pspWebhook --> orch
+enrollApi --> pki
+chainListener --> orch
+jobRunner --> orch
+schedulers --> orch
+
+orch ..> IRail
+orch ..> IConv
+orch ..> INotifier
+orch ..> IJobs
+orch ..> IRepo
+merchants ..> IIdentity
+merchants ..> IRepo
+
+IRail -- pixRail
+IRail -- ethRail
+IConv -- convMock
+IIdentity -- idClient
+INotifier -- webhookOut
+IJobs -- jobTable
+IRepo -- jpa
+
+note bottom of ethRail
+  Um novo sistema de pagamento entra
+  implementando PaymentRail: um adaptador
+  por sistema, crescimento linear.
+end note
+@enduml

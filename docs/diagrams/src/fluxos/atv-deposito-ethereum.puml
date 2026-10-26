@@ -1,0 +1,42 @@
+@startuml atv-deposito-ethereum
+!include ../_estilo.iuml
+
+title Processamento de um pagamento em ETH (Ethereum → Pix)
+
+start
+:evento Paid lido da blockchain;
+if (já existe tarefa com dedup_key eth:{txHash}:{logIndex}?) then (sim)
+  :ignorar;
+  stop
+else (não)
+endif
+:aguardar N confirmações;
+if (pagamento em AWAITING_PAYMENT?) then (não)
+  if (pagamento EXPIRED?) then (sim)
+    :refund() ao pagador;
+    stop
+  else (não)
+    :registrar para o operador;
+    stop
+  endif
+else (sim)
+endif
+:status → PAID\ntransação CHAIN_PAID;
+if (valor = cotação e cotação vigente?) then (não)
+  :status → REFUNDING;
+  :refund() ao pagador;
+  stop
+else (sim)
+endif
+:status → CONVERTING;
+:forward() ao provedor e venda;
+:status → DELIVERING;
+:buscar chave Pix no IdentityStore;
+:envio de Pix ao lojista;
+if (Pix liquidado?) then (sim)
+  :status → COMPLETED;
+else (não)
+  :status → FAILED (operador);
+endif
+stop
+@enduml

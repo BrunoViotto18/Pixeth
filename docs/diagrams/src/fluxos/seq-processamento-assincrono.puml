@@ -1,0 +1,55 @@
+@startuml seq-processamento-assincrono
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Processamento assíncrono com várias réplicas (PostgreSQL como fila)
+
+participant "API ou worker" as S
+database "PostgreSQL" as DB
+participant "Worker\nréplica A" as WA
+participant "Worker\nréplica B" as WB
+participant "Sistema externo\n(PSP, provedor, RPC)" as EXT
+
+== Gravação: estado e tarefa na mesma transação ==
+S -> DB : BEGIN\nUPDATE payments SET status = 'PAID', version = version + 1\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT INTO jobs (type = 'Convert', payment_id)\nCOMMIT
+note right
+  Ou as duas coisas acontecem, ou nenhuma:
+  uma queda no meio não deixa o pagamento
+  pago sem a tarefa seguinte.
+end note
+
+== Execução ==
+WA -> DB : BEGIN\nSELECT … FROM jobs WHERE status = 'PENDING'\n  AND run_at <= now() LIMIT 10\nFOR UPDATE SKIP LOCKED
+WB -> DB : mesma consulta, ao mesmo tempo
+note right
+  SKIP LOCKED: cada réplica pega tarefas
+  diferentes, sem fila externa.
+end note
+WA -> EXT : chamada com chave de idempotência\n(txid, id da devolução, paymentId)
+EXT --> WA : resultado
+WA -> DB : atualiza o pagamento + INSERT jobs (próximo passo)\nUPDATE jobs SET status = 'DONE'\nCOMMIT
+
+== Falhas ==
+alt erro no sistema externo
+  WA -> DB : attempts + 1, run_at = agora + espera crescente\n(depois de N tentativas: FAILED para o operador)
+else réplica A cai no meio
+  DB -> DB : conexão perdida → transação desfeita,\ntrava liberada
+  WB -> DB : pega a mesma tarefa
+  WB -> EXT : repete com a mesma chave de idempotência
+  EXT --> WB : mesmo resultado, sem efeito duplicado
+end
+
+== Eventos de entrada ==
+EXT -> S : webhook ou evento da blockchain
+S -> DB : INSERT INTO jobs (…, dedup_key = pix:{endToEndId})\nON CONFLICT (dedup_key) DO NOTHING
+S --> EXT : 200, inclusive para duplicados
+
+== Ouvinte da blockchain ==
+WA -> DB : pg_try_advisory_lock(ouvinte)
+note right
+  Só a réplica que obtém a trava consulta a rede;
+  se ela cair, a trava é liberada e outra assume.
+  O cursor (chain_cursor) fica no banco.
+end note
+@enduml

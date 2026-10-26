@@ -1,0 +1,112 @@
+@startuml er-processador
+!include ../_estilo.iuml
+
+title Banco do processador
+
+hide circle
+skinparam linetype ortho
+
+entity merchants {
+  * id : uuid <<PK>>
+  --
+  * subject_id : text <<UK>>
+  * display_name : text
+  * identity_store_id : uuid <<FK>>
+  wallet_address : text
+  pix_key_ref : uuid
+  pix_key_masked : text
+  webhook_url : text
+  webhook_secret : text
+  * created_at : timestamptz
+}
+
+entity payments {
+  * id : uuid <<PK>>
+  --
+  * merchant_id : uuid <<FK>>
+  * direction : text
+  * amount_brl_minor : bigint
+  * status : text
+  * collection_reference : text <<UK>>
+  * collection_instructions : text
+  quote_eth_wei : numeric(78,0)
+  quote_expires_at : timestamptz
+  hold_release_at : timestamptz
+  med_status : text
+  * idempotency_key : text
+  * request_hash : text
+  * expires_at : timestamptz
+  * version : bigint
+  * created_at : timestamptz
+  .. UK (merchant_id, idempotency_key) ..
+}
+
+entity transactions {
+  * id : uuid <<PK>>
+  --
+  * payment_id : uuid <<FK>>
+  * kind : text
+  * external_id : text
+  * amount_minor : numeric(78,0)
+  * asset : text
+  * occurred_at : timestamptz
+  .. UK (kind, external_id) ..
+}
+
+entity jobs {
+  * id : uuid <<PK>>
+  --
+  * type : text
+  payment_id : uuid <<FK>>
+  * dedup_key : text <<UK>>
+  * payload : jsonb
+  * status : text
+  * attempts : int
+  * run_at : timestamptz
+  last_error : text
+}
+
+entity identity_stores {
+  * id : uuid <<PK>>
+  --
+  * base_url : text
+  * status : text
+  enrollment_token_hash : text
+  enrollment_expires_at : timestamptz
+  certificate_serial : text
+  certificate_not_after : timestamptz
+}
+
+entity chain_cursor {
+  * chain_id : bigint <<PK>>
+  --
+  * last_block : bigint
+}
+
+identity_stores ||--o{ merchants
+merchants ||--o{ payments
+payments ||--o{ transactions
+payments |o--o{ jobs
+
+note right of jobs
+  Fila de tarefas e deduplicação ao mesmo tempo:
+  • workers buscam com FOR UPDATE SKIP LOCKED;
+  • dedup_key único descarta eventos repetidos
+    (pix:{endToEndId}, eth:{txHash}:{logIndex},
+    webhook:{paymentId}:{status}).
+end note
+
+note bottom of payments
+  Idempotency-Key repetida com o mesmo request_hash
+  devolve o pagamento existente; com outro, erro 422.
+  med_status: nulo, OPEN, RECOVERED, NOT_RECOVERABLE
+  ou CLOSED.
+end note
+
+note bottom of merchants
+  Dados pessoais ficam fora: nome, CPF/CNPJ e
+  chave Pix estão no IdentityStore (ref = id) e o
+  e-mail de acesso no Keycloak (subject_id). webhook_secret fica
+  cifrado com chave em Kubernetes Secret.
+end note
+@enduml

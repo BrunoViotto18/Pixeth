@@ -1,0 +1,37 @@
+@startuml atv-pix-recebido
+!include ../_estilo.iuml
+
+title Processamento de um Pix recebido (Pix → Ethereum)
+
+start
+:webhook do PSP recebido;
+if (já existe tarefa com dedup_key pix:{endToEndId}?) then (sim)
+  :responder 200 e ignorar;
+  stop
+else (não)
+endif
+:GET /pix/{endToEndId} no PSP;
+if (pagamento em AWAITING_PAYMENT?) then (não)
+  :registrar e ignorar\n(fora de ordem ou repetido);
+  stop
+else (sim)
+endif
+:status → PAID\ntransação PIX_IN;
+if (valor pago = valor da cobrança?) then (não)
+  :status → REFUNDING;
+  :devolução Pix total;
+  stop
+else (sim)
+endif
+:status → CONVERTING;
+:provedor converte e chama hold()\ncom releaseAt = agora + janela;
+if (conversão concluída?) then (não)
+  :status → REFUNDING;
+  :devolução Pix total;
+  stop
+else (sim)
+endif
+:status → HELD;
+:webhook payment.held;
+stop
+@enduml

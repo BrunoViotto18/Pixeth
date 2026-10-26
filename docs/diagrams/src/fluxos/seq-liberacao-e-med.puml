@@ -1,0 +1,55 @@
+@startuml seq-liberacao-e-med
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Liberação da retenção e MED (pagamentos Pix → Ethereum)
+
+actor "Pagador\n(alega fraude)" as P
+participant "PSP (API Pix)" as PSP
+box "Pixeth" #F4F7FB
+  participant "API" as API
+  database "Banco" as DB
+  participant "Workers" as W
+end box
+actor "Operador" as O
+participant "PixethGateway\n(Sepolia)" as GW
+participant "Sistema do lojista" as SL
+
+== Liberação (caminho normal) ==
+loop agendador, em qualquer réplica
+  W -> DB : SELECT … FROM payments\nWHERE status = 'HELD' AND hold_release_at <= now()\nAND med_status IS DISTINCT FROM 'OPEN'\nFOR UPDATE SKIP LOCKED
+  W -> GW : release(paymentId)
+  GW -> GW : require(block.timestamp >= releaseAt)\nenvia ao receiver (carteira do lojista)
+  GW --> W : evento Released
+  W -> DB : COMPLETED + transactions (CHAIN_RELEASED)
+  W ->> SL : webhook payment.completed
+end
+
+== MED durante a retenção ==
+P -> PSP : contesta o Pix (via seu banco)
+PSP -> API : notificação de MED (formato do PSP) — mTLS
+API -> DB : UPDATE payments SET med_status = 'OPEN'
+note right
+  Com um MED aberto, o agendador
+  deixa de liberar este pagamento.
+end note
+API -> O : alerta no console
+O -> PSP : acompanha a análise e responde\n(portal ou API do PSP)
+alt MED procedente e ainda antes de releaseAt
+  O -> API : "Recuperar valor retido"
+  W -> GW : recover(paymentId, medRef)
+  GW -> GW : require(block.timestamp < releaseAt)\nenvia ao recoveryAddress
+  W -> DB : REVERSED; med_status = RECOVERED;\ntransactions (CHAIN_RECOVERED)
+  W ->> SL : webhook payment.reversed
+else MED não procedente
+  O -> API : encerrar MED
+  W -> DB : med_status = CLOSED (a liberação volta a valer)
+else valor já liberado
+  W -> DB : med_status = NOT_RECOVERABLE
+  note right
+    Fora do escopo do TCC: cobrança do lojista,
+    reserva e contestação ficam como trabalho futuro.
+  end note
+end
+@enduml

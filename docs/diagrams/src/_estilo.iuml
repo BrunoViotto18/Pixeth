@@ -1,0 +1,32 @@
+' Estilo compartilhado pelos diagramas (exceto os diagramas C4, que têm estilo próprio).
+' Incluir com: !include ../_estilo.iuml
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam backgroundColor #FFFFFF
+skinparam ArrowColor #3C3C3C
+skinparam BorderColor #3C3C3C
+skinparam defaultTextAlignment center
+skinparam wrapWidth 260
+skinparam maxMessageSize 240
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam sequenceGroupBorderColor #7A7A7A
+skinparam sequenceBoxBorderColor #9A9A9A
+skinparam noteBackgroundColor #FFF8DC
+skinparam noteBorderColor #B8A770
+skinparam ParticipantBackgroundColor #EEF3FA
+skinparam ActorBackgroundColor #EEF3FA
+skinparam ClassBackgroundColor #F7F9FC
+skinparam ClassBorderColor #3C5A80
+skinparam StateBackgroundColor #F7F9FC
+skinparam StateBorderColor #3C5A80
+skinparam ActivityBackgroundColor #F7F9FC
+skinparam ActivityBorderColor #3C5A80
+skinparam ActivityDiamondBackgroundColor #FFF3E0
+skinparam UsecaseBackgroundColor #F7F9FC
+skinparam UsecaseBorderColor #3C5A80
+skinparam ComponentBackgroundColor #F7F9FC
+skinparam ComponentBorderColor #3C5A80
+skinparam PackageBorderColor #7A7A7A
+skinparam EntityBackgroundColor #F7F9FC
+skinparam EntityBorderColor #3C5A80

@@ -1,0 +1,55 @@
+@startuml fronteiras-de-confianca
+!include ../_estilo.iuml
+
+title Fronteiras de confiança (Zero Trust)
+
+left to right direction
+
+rectangle "Internet (não confiável)" as ZNet #FFF4F4 {
+  actor "Pagador" as tPagador
+  actor "Lojista / operador" as tUser
+  node "Sistema do lojista" as tSL
+  node "PSP (API Pix)" as tPSP
+  node "Provedor RPC (Sepolia)" as tRpc
+}
+
+rectangle "Processador (centralizado)" as ZApp #F4F7FB {
+  node "Ingress\nTLS + limites de taxa" as tIngress
+  node "API" as tApi
+  node "Workers" as tWorkers
+  node "Keycloak" as tKc
+  database "PostgreSQL" as tDb
+  node "Kubernetes Secrets\n(chave da AC, credenciais do PSP,\nchave do operator)" as tSecrets
+}
+
+rectangle "IdentityStore (descentralizado)" as ZIds #FBF7F0 {
+  node "API do IdentityStore" as tIds
+}
+
+rectangle "Ethereum" as ZChain #F0F7F7 {
+  node "PixethGateway" as tContract
+}
+
+tPagador --> tIngress : [1] checkout público com dados mínimos
+tUser --> tIngress : [2] OIDC + PKCE + MFA
+tSL --> tIngress : [3] OAuth 2.0 client credentials
+tPSP --> tIngress : [4] webhook com mTLS;\nconteúdo reconsultado em GET /pix
+tIngress --> tApi
+tApi --> tKc : [5] valida JWT (JWKS)
+tApi --> tDb : [6] TLS + usuário com privilégio mínimo
+tWorkers --> tDb
+tApi --> tSecrets
+tWorkers --> tSecrets
+tWorkers --> tPSP : [7] mTLS + OAuth 2.0
+tApi --> tIds : [8] mTLS mútuo (AC do processador)
+tWorkers --> tIds
+tWorkers --> tRpc : [9] JSON-RPC sobre TLS
+tWorkers --> tContract : [10] operator só aciona;\no contrato fixa os destinos
+tWorkers --> tSL : [11] webhook assinado (HMAC);\no lojista reconsulta a API
+
+note bottom of ZChain
+  Mesmo com o back-end comprometido, o contrato
+  não libera antes de releaseAt e nunca envia
+  para um destino escolhido pelo chamador.
+end note
+@enduml

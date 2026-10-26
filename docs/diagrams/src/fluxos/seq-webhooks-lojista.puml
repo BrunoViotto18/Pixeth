@@ -1,0 +1,28 @@
+@startuml seq-webhooks-lojista
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Webhooks para o lojista
+
+box "Pixeth" #F4F7FB
+  participant "Workers" as W
+  database "Banco" as DB
+end box
+participant "Sistema do lojista" as SL
+
+W -> DB : tarefa NotifyMerchant, gravada junto com a\nmudança de estado (dedup_key = webhook:{paymentId}:{status})
+W -> SL : POST {webhook_url}\nPixeth-Event-Id, Pixeth-Timestamp,\nPixeth-Signature: v1=HMAC-SHA256(segredo, timestamp + "." + corpo)
+SL -> SL : confere assinatura e timestamp;\nignora Pixeth-Event-Id repetido
+alt 2xx
+  SL --> W : 200
+  W -> DB : tarefa DONE
+else erro ou tempo esgotado (10 s)
+  W -> DB : attempts + 1; nova tentativa em 1 min, 5 min,\n30 min, 2 h e 12 h; depois FAILED
+end
+
+note over W, SL
+  O webhook só avisa: a fonte da verdade é GET /v1/payments/{id}.
+  É a mesma regra que o Pixeth aplica aos webhooks do PSP.
+end note
+@enduml

@@ -1,0 +1,44 @@
+@startuml seq-inscricao-chave-pix
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Inscrição de chave Pix com verificação de titularidade
+
+actor "Lojista" as L
+box "Pixeth" #F4F7FB
+  participant "Aplicação web" as Web
+  participant "API" as API
+  database "Banco" as DB
+end box
+participant "PSP (API Pix)" as PSP
+participant "IdentityStore" as IDS
+
+L -> Web : informa a chave Pix
+Web -> API : PUT /v1/merchants/{id}/pix-key {key}
+API -> PSP : consulta a chave
+PSP --> API : titular (nome, documento mascarado),\ntipo da chave
+API -> IDS : POST /v1/owners/{merchantId}/document-match\n{document mascarado, holderName} — mTLS
+IDS --> API : matches: true / false
+
+alt titular é o lojista
+  API -> API : gera keyRef
+  API -> IDS : PUT /v1/pix-keys/{keyRef}\n{ownerRef: merchantId, type, value} — mTLS
+  IDS --> API : 201
+  API -> DB : UPDATE merchants SET pix_key_ref = ?,\npix_key_masked = ?
+  API --> Web : 200 {maskedKey}
+  opt havia uma chave anterior
+    API -> IDS : DELETE /v1/pix-keys/{keyRefAnterior}
+  end
+else titular diferente
+  API --> Web : 422 "a chave precisa estar no nome do lojista"
+else chave inexistente
+  API --> Web : 404
+end
+
+note over API, IDS
+  O documento nunca volta ao processador: o IdentityStore
+  só responde se confere. O processador guarda apenas a
+  referência e a chave mascarada.
+end note
+@enduml

@@ -1,0 +1,889 @@
+openapi: 3.1.0
+info:
+  title: Pixeth — API do processador
+  version: 0.3.0
+  summary: Gateway de pagamentos Pix ⇄ Ethereum com arquitetura Zero Trust.
+  description: |
+    Públicos atendidos:
+
+    - **Sistema do lojista:** cria e consulta pagamentos com OAuth 2.0 *client credentials*
+      (Keycloak). O *token* traz a *claim* `merchant_id`.
+    - **Aplicação web:** lojistas e operadores autenticados por OIDC (Keycloak, com MFA).
+    - **Checkout:** página pública do pagador, identificada por um `checkoutId` aleatório.
+    - **Máquinas:** IdentityStores (inscrição de certificado) e PSP (*webhooks*), via mTLS.
+
+    Regras gerais:
+
+    - Valores são *strings* decimais na precisão do ativo (`"100.00"` BRL, `"0.0058"` ETH).
+    - `POST /v1/payments` exige `Idempotency-Key`: repetir com a mesma chave e o mesmo corpo
+      devolve o pagamento existente; com outro corpo, `422`.
+    - Erros seguem *Problem Details* (RFC 9457).
+    - O processador não guarda estado em memória: qualquer réplica atende qualquer requisição.
+servers:
+  - url: https://api.pixeth.example
+    description: Ambiente do TCC (PSP em homologação e rede Sepolia)
+tags:
+  - name: Pagamentos
+  - name: Checkout
+  - name: Lojistas
+  - name: Integração
+  - name: Inscrição de IdentityStores
+  - name: PSP
+  - name: Administração
+
+security:
+  - merchantClient: []
+
+paths:
+  /v1/payments:
+    post:
+      tags: [Pagamentos]
+      operationId: createPayment
+      summary: Criar pagamento
+      description: |
+        Síncrono e idempotente. `PIX_TO_ETH`: cria a cobrança no PSP e devolve o BR Code.
+        `ETH_TO_PIX`: obtém a cotação e devolve o valor em ETH e os dados do contrato.
+      security:
+        - merchantClient: [payments:write]
+        - userBearer: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentCreateRequest' }
+            examples:
+              pixParaEthereum:
+                value:
+                  direction: PIX_TO_ETH
+                  amount: { value: '100.00', asset: BRL }
+                  description: Pedido 1234
+              ethereumParaPix:
+                value:
+                  direction: ETH_TO_PIX
+                  amount: { value: '100.00', asset: BRL }
+                  description: Pedido 1235
+      responses:
+        '201':
+          description: Pagamento criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '200':
+          description: Pagamento já existente para esta Idempotency-Key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: Lojista sem carteira (PIX_TO_ETH) ou sem chave Pix (ETH_TO_PIX)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: Idempotency-Key já usada com outro corpo
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Pagamentos]
+      operationId: listPayments
+      summary: Listar pagamentos do lojista
+      security:
+        - merchantClient: [payments:read]
+        - userBearer: []
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentStatus' }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Página de pagamentos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentPage' }
+
+  /v1/payments/{paymentId}:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    get:
+      tags: [Pagamentos]
+      operationId: getPayment
+      summary: Consultar pagamento
+      description: Fonte da verdade; os *webhooks* apenas avisam que algo mudou.
+      security:
+        - merchantClient: [payments:read]
+        - userBearer: []
+      responses:
+        '200':
+          description: Pagamento
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/checkout/{checkoutId}:
+    parameters:
+      - name: checkoutId
+        in: path
+        required: true
+        schema: { type: string, minLength: 32 }
+    get:
+      tags: [Checkout]
+      operationId: getCheckout
+      summary: Dados públicos do pagamento para o pagador
+      security: []
+      responses:
+        '200':
+          description: Dados mínimos do checkout
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Checkout' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/me:
+    get:
+      tags: [Lojistas]
+      operationId: getMe
+      summary: Lojista do usuário autenticado
+      security:
+        - userBearer: []
+      responses:
+        '200':
+          description: Lojista
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+        '404':
+          description: Usuário ainda não cadastrou um lojista
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/merchants:
+    post:
+      tags: [Lojistas]
+      operationId: registerMerchant
+      summary: Cadastrar lojista do usuário autenticado
+      description: |
+        Idempotente pelo `sub` do token (um lojista por usuário). Nome e documento vão para o
+        IdentityStore e não são gravados no processador.
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName, legalName, document]
+              properties:
+                displayName: { type: string, description: Nome exibido ao pagador }
+                legalName: { type: string, description: Nome ou razão social }
+                document:
+                  type: string
+                  description: 'CPF ou CNPJ, somente dígitos'
+                  pattern: '^(\d{11}|\d{14})$'
+      responses:
+        '201':
+          description: Lojista criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+        '200':
+          description: O usuário já tinha um lojista
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+
+  /v1/merchants/{merchantId}/wallet/challenge:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+    post:
+      tags: [Lojistas]
+      operationId: createWalletChallenge
+      summary: Gerar mensagem SIWE (EIP-4361) para assinatura
+      description: A mensagem não é gravada; volta assinada pelo servidor e expira em 10 minutos.
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address, chainId]
+              properties:
+                address: { $ref: '#/components/schemas/EthereumAddress' }
+                chainId: { type: integer, example: 11155111 }
+      responses:
+        '200':
+          description: Mensagem a ser assinada pela carteira
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, serverSignature, expiresAt]
+                properties:
+                  message: { type: string }
+                  serverSignature: { type: string }
+                  expiresAt: { type: string, format: date-time }
+
+  /v1/merchants/{merchantId}/wallet:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+    put:
+      tags: [Lojistas]
+      operationId: setWallet
+      summary: Inscrever (ou trocar) a carteira de recebimento
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, serverSignature, walletSignature]
+              properties:
+                message: { type: string }
+                serverSignature: { type: string }
+                walletSignature: { type: string, pattern: '^0x[0-9a-fA-F]+$' }
+      responses:
+        '200':
+          description: Carteira inscrita
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+        '400':
+          description: Assinatura inválida ou mensagem expirada
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [Lojistas]
+      operationId: removeWallet
+      summary: Remover a carteira
+      security:
+        - userBearer: []
+      responses:
+        '204': { description: Removida }
+
+  /v1/merchants/{merchantId}/pix-key:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+    put:
+      tags: [Lojistas]
+      operationId: setPixKey
+      summary: Inscrever (ou trocar) a chave Pix de recebimento
+      description: |
+        A chave é consultada no PSP e só é aceita se o titular for o próprio lojista (documento
+        conferido pelo IdentityStore). O valor vai para o IdentityStore; o processador guarda só
+        a referência e a versão mascarada.
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string }
+      responses:
+        '200':
+          description: Chave inscrita
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+        '404':
+          description: Chave não encontrada no PSP
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: O titular da chave não é o lojista
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [Lojistas]
+      operationId: removePixKey
+      summary: Remover a chave Pix
+      security:
+        - userBearer: []
+      responses:
+        '204': { description: Removida }
+
+  /v1/merchants/{merchantId}/api-clients:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+    get:
+      tags: [Integração]
+      operationId: listApiClients
+      summary: Listar credenciais de API (lidas do Keycloak)
+      security:
+        - userBearer: []
+      responses:
+        '200':
+          description: Credenciais
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiClient' }
+    post:
+      tags: [Integração]
+      operationId: createApiClient
+      summary: Criar credencial (cliente confidencial no Keycloak)
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          description: Credencial criada; o segredo é exibido uma única vez
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiClient'
+                  - type: object
+                    required: [clientSecret, tokenUrl]
+                    properties:
+                      clientSecret: { type: string }
+                      tokenUrl: { type: string, format: uri }
+
+  /v1/merchants/{merchantId}/api-clients/{clientId}:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+      - name: clientId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [Integração]
+      operationId: revokeApiClient
+      summary: Revogar credencial
+      security:
+        - userBearer: []
+      responses:
+        '204': { description: Revogada }
+
+  /v1/merchants/{merchantId}/webhook:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+    put:
+      tags: [Integração]
+      operationId: setWebhook
+      summary: Definir a URL de webhook (somente HTTPS) e gerar um novo segredo
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri }
+      responses:
+        '200':
+          description: Webhook definido; o segredo de assinatura é exibido uma única vez
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, signingSecret]
+                properties:
+                  url: { type: string, format: uri }
+                  signingSecret: { type: string }
+    delete:
+      tags: [Integração]
+      operationId: removeWebhook
+      summary: Remover o webhook
+      security:
+        - userBearer: []
+      responses:
+        '204': { description: Removido }
+
+  /v1/enrollment:
+    post:
+      tags: [Inscrição de IdentityStores]
+      operationId: enroll
+      summary: Trocar token de inscrição + CSR por certificado
+      description: |
+        TLS só com autenticação do servidor; o IdentityStore confere a AC pela impressão
+        digital recebida com o token. O token é de uso único.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, csr]
+              properties:
+                token: { type: string }
+                csr: { type: string, description: CSR PKCS#10 em PEM }
+      responses:
+        '201':
+          description: Certificado emitido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedCertificate' }
+        '401':
+          description: Token inválido, usado ou expirado
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/enrollment/renew:
+    post:
+      tags: [Inscrição de IdentityStores]
+      operationId: renew
+      summary: Renovar certificado usando o certificado atual
+      security:
+        - mtls: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [csr]
+              properties:
+                csr: { type: string }
+      responses:
+        '201':
+          description: Novo certificado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedCertificate' }
+        '403':
+          description: IdentityStore revogado
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/psp/{pspId}/pix:
+    parameters:
+      - $ref: '#/components/parameters/PspId'
+    post:
+      tags: [PSP]
+      operationId: receivePixWebhook
+      summary: Webhook de Pix recebidos (formato da API Pix do BCB)
+      description: |
+        Cada Pix vira uma tarefa com `dedup_key = pix:{endToEndId}` (repetições são descartadas)
+        e é reconsultado com `GET /pix/{e2eid}` antes de qualquer efeito. Responde 200 também
+        para duplicados.
+      security:
+        - mtls: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pix]
+              properties:
+                pix:
+                  type: array
+                  items:
+                    type: object
+                    required: [endToEndId, valor, horario]
+                    properties:
+                      endToEndId: { type: string }
+                      txid: { type: string }
+                      valor: { type: string }
+                      horario: { type: string, format: date-time }
+      responses:
+        '200': { description: Recebido }
+
+  /v1/psp/{pspId}/infractions:
+    parameters:
+      - $ref: '#/components/parameters/PspId'
+    post:
+      tags: [PSP]
+      operationId: receiveInfractionWebhook
+      summary: Notificação de MED (formato próprio de cada PSP)
+      description: Marca o pagamento com `medStatus = OPEN` e suspende a liberação.
+      security:
+        - mtls: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Recebido }
+
+  /v1/admin/payments:
+    get:
+      tags: [Administração]
+      operationId: adminListPayments
+      summary: Listar pagamentos (por exemplo, com MED aberto ou em FAILED)
+      security:
+        - operatorBearer: []
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentStatus' }
+        - name: medStatus
+          in: query
+          schema: { $ref: '#/components/schemas/MedStatus' }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Página de pagamentos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentPage' }
+
+  /v1/admin/payments/{paymentId}/med/recover:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      tags: [Administração]
+      operationId: recoverHeldPayment
+      summary: MED procedente — recuperar o valor retido no contrato (recover)
+      description: Só é possível antes de `holdReleaseAt`; o valor vai para o `recoveryAddress`.
+      security:
+        - operatorBearer: []
+      responses:
+        '202': { description: Recuperação enviada à rede }
+        '409':
+          description: Valor já liberado ao lojista
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/admin/payments/{paymentId}/med/close:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      tags: [Administração]
+      operationId: closeMed
+      summary: MED não procedente — encerrar (a liberação volta a valer)
+      security:
+        - operatorBearer: []
+      responses:
+        '204': { description: Encerrado }
+
+  /v1/admin/payments/{paymentId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      tags: [Administração]
+      operationId: retryPayment
+      summary: Reexecutar a última tarefa de um pagamento em FAILED
+      security:
+        - operatorBearer: []
+      responses:
+        '202': { description: Tarefa reagendada }
+
+  /v1/admin/identity-stores:
+    post:
+      tags: [Administração]
+      operationId: createIdentityStore
+      summary: Emitir token de inscrição de IdentityStore
+      security:
+        - operatorBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [baseUrl]
+              properties:
+                baseUrl: { type: string, format: uri }
+      responses:
+        '201':
+          description: Token emitido (exibido uma única vez)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [identityStoreId, enrollmentToken, caFingerprintSha256, expiresAt]
+                properties:
+                  identityStoreId: { type: string, format: uuid }
+                  enrollmentToken: { type: string }
+                  caFingerprintSha256: { type: string }
+                  expiresAt: { type: string, format: date-time }
+
+  /v1/admin/identity-stores/{identityStoreId}/revoke:
+    parameters:
+      - name: identityStoreId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Administração]
+      operationId: revokeIdentityStore
+      summary: Revogar IdentityStore
+      security:
+        - operatorBearer: []
+      responses:
+        '204': { description: Revogado }
+
+webhooks:
+  paymentEvent:
+    post:
+      summary: Evento enviado à URL de webhook do lojista
+      description: |
+        `Pixeth-Signature: v1=<HMAC-SHA256(segredo, Pixeth-Timestamp + "." + corpo)>`.
+        O lojista confere a assinatura, recusa timestamps com mais de 5 minutos de diferença
+        e ignora `Pixeth-Event-Id` já processado.
+      parameters:
+        - name: Pixeth-Event-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Pixeth-Timestamp
+          in: header
+          required: true
+          schema: { type: integer }
+        - name: Pixeth-Signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEvent' }
+      responses:
+        '2XX': { description: Recebido }
+
+components:
+  securitySchemes:
+    merchantClient:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.pixeth.example/realms/pixeth/protocol/openid-connect/token
+          scopes:
+            payments:read: Consultar pagamentos
+            payments:write: Criar pagamentos
+    userBearer:
+      type: openIdConnect
+      openIdConnectUrl: https://auth.pixeth.example/realms/pixeth/.well-known/openid-configuration
+    operatorBearer:
+      type: openIdConnect
+      openIdConnectUrl: https://auth.pixeth.example/realms/pixeth/.well-known/openid-configuration
+      description: Usuários com o papel operator; MFA obrigatório.
+    mtls:
+      type: mutualTLS
+      description: Certificado do PSP ou de um IdentityStore inscrito.
+
+  parameters:
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MerchantId:
+      name: merchantId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PspId:
+      name: pspId
+      in: path
+      required: true
+      schema: { type: string, example: efi }
+
+  responses:
+    Problem:
+      description: Erro
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+
+    Money:
+      type: object
+      required: [value, asset]
+      properties:
+        value: { type: string, pattern: '^\d+(\.\d+)?$' }
+        asset: { type: string, enum: [BRL, ETH] }
+
+    EthereumAddress:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{40}$'
+
+    Direction:
+      type: string
+      enum: [PIX_TO_ETH, ETH_TO_PIX]
+
+    PaymentStatus:
+      type: string
+      enum: [AWAITING_PAYMENT, PAID, CONVERTING, HELD, DELIVERING, COMPLETED, EXPIRED, REFUNDING, REFUNDED, REVERSED, FAILED]
+
+    MedStatus:
+      type: string
+      enum: [OPEN, RECOVERED, NOT_RECOVERABLE, CLOSED]
+
+    PaymentCreateRequest:
+      type: object
+      required: [direction, amount]
+      properties:
+        direction: { $ref: '#/components/schemas/Direction' }
+        amount:
+          $ref: '#/components/schemas/Money'
+          description: Valor do pagamento em BRL.
+        description:
+          type: string
+          maxLength: 140
+          description: Exibido ao pagador.
+
+    Payment:
+      type: object
+      required: [id, direction, amount, status, checkoutUrl, expiresAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        direction: { $ref: '#/components/schemas/Direction' }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        checkoutUrl: { type: string, format: uri }
+        pixCopiaECola:
+          type: string
+          description: Presente em PIX_TO_ETH.
+        ethereum:
+          type: object
+          description: Presente em ETH_TO_PIX.
+          properties:
+            chainId: { type: integer }
+            contractAddress: { $ref: '#/components/schemas/EthereumAddress' }
+            paymentIdBytes32: { type: string, pattern: '^0x[0-9a-fA-F]{64}$' }
+            amountToPay: { $ref: '#/components/schemas/Money' }
+            quoteExpiresAt: { type: string, format: date-time }
+        holdReleaseAt:
+          type: [string, 'null']
+          format: date-time
+          description: Em PIX_TO_ETH, quando o valor retido será liberado ao lojista.
+        medStatus:
+          oneOf:
+            - $ref: '#/components/schemas/MedStatus'
+            - type: 'null'
+        transactions:
+          type: array
+          items: { $ref: '#/components/schemas/Transaction' }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    PaymentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Payment' }
+        nextCursor: { type: [string, 'null'] }
+
+    Transaction:
+      type: object
+      required: [kind, externalId, amount, occurredAt]
+      properties:
+        kind:
+          type: string
+          enum: [PIX_IN, PIX_OUT, PIX_REFUND, CHAIN_PAID, CHAIN_HELD, CHAIN_RELEASED, CHAIN_FORWARDED, CHAIN_REFUNDED, CHAIN_RECOVERED, CONVERSION]
+        externalId: { type: string, description: endToEndId ou txHash }
+        amount: { $ref: '#/components/schemas/Money' }
+        occurredAt: { type: string, format: date-time }
+
+    Checkout:
+      type: object
+      required: [status, direction, amount, merchantDisplayName, expiresAt]
+      properties:
+        status:
+          type: string
+          enum: [AWAITING_PAYMENT, PROCESSING, COMPLETED, EXPIRED, REFUNDED]
+        direction: { $ref: '#/components/schemas/Direction' }
+        amount: { $ref: '#/components/schemas/Money' }
+        merchantDisplayName: { type: string }
+        description: { type: string }
+        pixCopiaECola: { type: string }
+        ethereum:
+          type: object
+          properties:
+            chainId: { type: integer }
+            contractAddress: { $ref: '#/components/schemas/EthereumAddress' }
+            paymentIdBytes32: { type: string }
+            amountToPay: { $ref: '#/components/schemas/Money' }
+        expiresAt: { type: string, format: date-time }
+
+    Merchant:
+      type: object
+      required: [id, displayName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        walletAddress: { oneOf: [{ $ref: '#/components/schemas/EthereumAddress' }, { type: 'null' }] }
+        pixKeyMasked: { type: [string, 'null'], example: '***.456.789-**' }
+        webhookUrl: { type: [string, 'null'], format: uri }
+        createdAt: { type: string, format: date-time }
+
+    ApiClient:
+      type: object
+      required: [clientId, name]
+      properties:
+        clientId: { type: string }
+        name: { type: string }
+
+    WebhookEvent:
+      type: object
+      required: [id, type, createdAt, data]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [payment.paid, payment.held, payment.completed, payment.expired, payment.refunded, payment.reversed, payment.failed]
+        createdAt: { type: string, format: date-time }
+        data:
+          type: object
+          required: [paymentId, status]
+          properties:
+            paymentId: { type: string, format: uuid }
+            status: { $ref: '#/components/schemas/PaymentStatus' }
+
+    IssuedCertificate:
+      type: object
+      required: [certificatePem, caCertificatePem, notAfter, identity]
+      properties:
+        certificatePem: { type: string }
+        caCertificatePem: { type: string }
+        notAfter: { type: string, format: date-time }
+        identity: { type: string, example: 'urn:pixeth:identity-store:3f2a…' }

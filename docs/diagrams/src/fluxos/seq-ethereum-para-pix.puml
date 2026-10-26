@@ -1,0 +1,68 @@
+@startuml seq-ethereum-para-pix
+!include ../_estilo.iuml
+hide footbox
+autonumber
+
+title Pagamento Ethereum → Pix
+
+participant "Sistema do lojista" as SL
+actor "Pagador" as P
+participant "MetaMask" as MM
+box "Pixeth" #F4F7FB
+  participant "Checkout" as CO
+  participant "API" as API
+  database "Banco" as DB
+  participant "Workers" as W
+end box
+participant "PixethGateway\n(Sepolia)" as GW
+participant "Provedor de conversão\n(simulado)" as PC
+participant "IdentityStore" as IDS
+participant "PSP (API Pix)" as PSP
+
+== 1. Criação (síncrona e idempotente) ==
+SL -> API : POST /v1/payments {amount: "100.00 BRL",\ndirection: ETH_TO_PIX} — Bearer + Idempotency-Key
+API -> DB : lojista tem chave Pix inscrita?
+API -> PC : cotação ETH → BRL
+PC --> API : 0,0058 ETH, válida por 15 min
+API -> DB : INSERT payments (AWAITING_PAYMENT, cotação)
+API --> SL : 201 {paymentId, checkoutUrl, amount: "0.0058 ETH"}
+
+== 2. Pagamento ==
+SL -> P : redireciona para o checkout
+P -> CO : "Pagar com MetaMask"
+CO -> MM : eth_sendTransaction:\nGW.pay(paymentId) {value: 0,0058 ETH}
+MM -> P : confirma valor e taxa de rede
+P -> MM : aprova
+MM -> GW : transação
+GW --> MM : evento Paid(paymentId, payer, amount)
+
+== 3. Detecção ==
+loop a cada novo bloco (réplica com a trava do ouvinte)
+  W -> GW : eth_getLogs(Paid, desde chain_cursor)
+  W -> DB : BEGIN\nINSERT jobs (ConfirmDeposit, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE chain_cursor\nCOMMIT
+end
+W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT transactions (CHAIN_PAID)\nCOMMIT
+
+== 4. Validação ==
+alt valor diferente da cotação ou cotação vencida
+  W -> GW : refund(paymentId) → payer
+  W -> DB : REFUNDED + transactions (CHAIN_REFUNDED)
+  W ->> SL : webhook payment.refunded
+else valor correto
+  W -> DB : CONVERTING
+  W -> GW : forward(paymentId) → conversionAddress
+  W -> PC : vender o ETH recebido
+  PC --> W : BRL disponível na conta do Pixeth
+  W -> DB : transactions (CHAIN_FORWARDED, CONVERSION)
+
+  group 5. Pagamento ao lojista
+    W -> DB : DELIVERING
+    W -> IDS : GET /v1/pix-keys/{keyRef} — mTLS
+    IDS --> W : chave Pix (só em memória)
+    W -> PSP : envio de Pix (API do PSP)\nchave de idempotência = paymentId
+    PSP --> W : endToEndId
+    W -> DB : COMPLETED + transactions (PIX_OUT)
+    W ->> SL : webhook payment.completed
+  end
+end
+@enduml

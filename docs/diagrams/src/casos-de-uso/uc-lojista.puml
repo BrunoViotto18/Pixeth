@@ -1,0 +1,46 @@
+@startuml uc-lojista
+!include ../_estilo.iuml
+
+title Casos de uso — Lojista e sistema do lojista
+
+left to right direction
+
+actor "Lojista" as L
+actor "Sistema do lojista" as SL
+actor "IdentityStore" as IDS
+actor "PSP" as PSP
+
+rectangle "Pixeth" {
+  usecase "Cadastrar-se" as UC_Cadastro
+  usecase "Autenticar-se (com MFA)" as UC_Login
+  usecase "Inscrever carteira" as UC_Carteira
+  usecase "Provar posse da carteira (SIWE)" as UC_Siwe
+  usecase "Inscrever chave Pix" as UC_ChavePix
+  usecase "Verificar titularidade da chave" as UC_Titular
+  usecase "Remover destino de recebimento" as UC_Remover
+  usecase "Gerar credencial de API" as UC_Credencial
+  usecase "Configurar webhook" as UC_Webhook
+  usecase "Criar pagamento" as UC_Criar
+  usecase "Consultar pagamentos" as UC_Consultar
+  usecase "Receber notificações (webhooks)" as UC_Notif
+}
+
+L --> UC_Cadastro
+L --> UC_Login
+L --> UC_Carteira
+L --> UC_ChavePix
+L --> UC_Remover
+L --> UC_Credencial
+L --> UC_Webhook
+L --> UC_Criar
+L --> UC_Consultar
+SL --> UC_Criar
+SL --> UC_Consultar
+SL --> UC_Notif
+
+UC_Carteira ..> UC_Siwe : <<include>>
+UC_ChavePix ..> UC_Titular : <<include>>
+UC_Cadastro --> IDS
+UC_Titular --> PSP
+UC_Titular --> IDS
+@enduml

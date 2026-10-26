@@ -1,0 +1,39 @@
+@startuml uc-pagador
+!include ../_estilo.iuml
+
+title Casos de uso — Pagador
+
+left to right direction
+
+actor "Pagador" as P
+actor "Banco do pagador" as Banco
+actor "Carteira (MetaMask)" as Carteira
+
+rectangle "Pixeth" {
+  usecase "Abrir checkout" as UC_Checkout
+  usecase "Pagar com Pix" as UC_PagarPix
+  usecase "Pagar com ETH (MetaMask)" as UC_PagarEth
+  usecase "Acompanhar o pagamento" as UC_Estado
+  usecase "Receber reembolso automático" as UC_Reembolso
+}
+
+rectangle "Fora do Pixeth" {
+  usecase "Contestar Pix por fraude (MED)" as UC_Med
+}
+
+P --> UC_Checkout
+P --> UC_PagarPix
+P --> UC_PagarEth
+P --> UC_Estado
+P --> UC_Reembolso
+P --> UC_Med
+UC_PagarPix --> Banco
+UC_PagarEth --> Carteira
+UC_Med --> Banco
+
+note right of UC_Reembolso
+  Quando o pagamento não pode ser concluído
+  (valor errado, cotação vencida, falha na
+  conversão), o valor volta pelo mesmo meio.
+end note
+@enduml

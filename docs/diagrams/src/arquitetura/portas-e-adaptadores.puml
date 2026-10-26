@@ -1,0 +1,104 @@
+@startuml portas-e-adaptadores
+!include ../_estilo.iuml
+
+title Portas de saída e implementações
+
+hide empty members
+
+skinparam class<<futuro>> {
+  BackgroundColor #FFFFFF
+  BorderColor #A0A0A0
+  FontColor #8A8A8A
+}
+
+interface PaymentRail {
+  +id(): RailId
+  +capabilities(): RailCapabilities
+  +createCollection(payment: Payment): Collection
+  +confirm(externalId: String): Transaction
+  +refund(payment: Payment): Transaction
+  +payout(payment: Payment, destination: Destination): Transaction
+}
+
+class RailCapabilities <<record>> {
+  reversible: boolean
+  supportsPayout: boolean
+  typicalFinality: Duration
+}
+
+class PixRail
+interface PixPspClient {
+  +putCob(txid: String, body: CobRequest): Cob
+  +getPix(endToEndId: String): PixReceived
+  +refund(endToEndId: String, id: String, amount: Money): PixRefund
+  +sendPix(idempotencyKey: String, key: PixKey, amount: Money): PixPayment
+  +lookupKey(key: String): PixKeyOwner
+}
+class EfiPixClient
+
+class EthereumRail {
+  -chainId: long
+}
+class PixethGatewayContract <<Web3j>> {
+  +hold(paymentId, receiver, releaseAt, value)
+  +release(paymentId)
+  +recover(paymentId, medRef)
+  +forward(paymentId)
+  +refund(paymentId)
+}
+
+class BitcoinRail <<futuro>>
+class BoletoRail <<futuro>>
+
+interface ConversionProvider {
+  +quote(source: Asset, target: Asset, amount: Money): Quote
+  +execute(quote: Quote, paymentId: UUID): ConversionResult
+}
+class MockConversionProvider
+class HttpConversionProvider <<futuro>>
+
+interface IdentityStore {
+  +putOwner(ownerRef: UUID, legalName: String, document: String)
+  +matchesDocument(ownerRef: UUID, document: String, holderName: String): boolean
+  +putPixKey(keyRef: UUID, ownerRef: UUID, key: PixKey)
+  +getPixKey(keyRef: UUID): PixKey
+  +deletePixKey(keyRef: UUID)
+}
+class MtlsIdentityStoreClient
+
+interface MerchantNotifier {
+  +deliver(endpoint: WebhookEndpoint, event: PaymentEvent): boolean
+}
+class SignedWebhookNotifier
+
+interface JobQueue {
+  +enqueue(type: String, paymentId: UUID, payload: Json)
+}
+class OutboxJobQueue
+
+PaymentRail ..> RailCapabilities
+PaymentRail <|.. PixRail
+PaymentRail <|.. EthereumRail
+PaymentRail <|.. BitcoinRail
+PaymentRail <|.. BoletoRail
+PixRail --> PixPspClient
+PixPspClient <|.. EfiPixClient
+EthereumRail --> PixethGatewayContract
+ConversionProvider <|.. MockConversionProvider
+ConversionProvider <|.. HttpConversionProvider
+IdentityStore <|.. MtlsIdentityStoreClient
+MerchantNotifier <|.. SignedWebhookNotifier
+JobQueue <|.. OutboxJobQueue
+
+note bottom of OutboxJobQueue
+  enqueue() só insere na tabela jobs, na mesma
+  transação da mudança de estado; os workers
+  executam depois.
+end note
+
+note right of MockConversionProvider
+  Simula cotação e conversão com uma taxa
+  configurável e uma carteira de teste na
+  Sepolia, que deposita o ETH via hold().
+end note
+@enduml
