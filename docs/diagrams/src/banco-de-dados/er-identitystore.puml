@@ -6,30 +6,65 @@ title Banco do IdentityStore
 hide circle
 skinparam linetype ortho
 
-entity owners {
-  * ref : uuid <<PK>>
-  --
-  * legal_name_enc : bytea
-  * document_enc : bytea
-  * created_at : timestamptz
+package "identity" {
+  entity "identity.owners" as owners {
+    * id : uuid <<PK>>
+    --
+    * legal_name : bytea
+    * document : bytea
+    * created_at : timestamptz
+  }
 }
 
-entity pix_keys {
-  * ref : uuid <<PK>>
-  --
-  * owner_ref : uuid <<FK>>
-  * type : text
-  * value_enc : bytea
-  * created_at : timestamptz
+package "pix" {
+  entity "pix.keys" as pix_keys {
+    * id : uuid <<PK>>
+    --
+    * owner_id : uuid <<FK>>
+    * type : pix.key_type
+    * value : bytea
+    * created_at : timestamptz
+  }
+
+  enum "pix.key_type" as pix_key_type {
+    CPF
+    CNPJ
+    EMAIL
+    PHONE
+    EVP
+  }
+}
+
+package "ethereum" {
+  entity "ethereum.wallets" as eth_wallets {
+    * id : uuid <<PK>>
+    --
+    * owner_id : uuid <<FK>>
+    * chain_id : bigint
+    * address : bytea
+    * siwe_message : bytea
+    * siwe_signature : bytea
+    * created_at : timestamptz
+  }
 }
 
 owners ||--o{ pix_keys
+owners ||--o{ eth_wallets
+pix_keys ..> pix_key_type
 
 note bottom of owners
-  Todos os dados pessoais do sistema estão aqui: nome,
-  CPF/CNPJ e chaves Pix. Campos *_enc são cifrados pela
-  aplicação, com chave do operador do IdentityStore.
-  ref = id do lojista no processador (referência opaca).
-  Eliminação (LGPD): apagar o titular e suas chaves.
+  Todos os dados pessoais do sistema estão aqui.
+  Toda coluna bytea é cifrada pela aplicação, com
+  chave do operador do IdentityStore.
+  owners.id = id do lojista no processador.
+  Um schema por trilho de pagamento (pix, ethereum),
+  cada um com as tabelas e os campos do seu trilho.
+end note
+
+note right of pix_key_type
+  Tipos de chave definidos pelo BCB:
+  CPF, CNPJ, e-mail, celular (PHONE) e
+  chave aleatória (EVP, um UUID gerado
+  pela instituição).
 end note
 @enduml

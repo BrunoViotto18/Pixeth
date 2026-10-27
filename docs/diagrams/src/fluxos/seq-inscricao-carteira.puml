@@ -12,11 +12,12 @@ box "Pixeth" #F4F7FB
   participant "API" as API
   database "Banco" as DB
 end box
+participant "IdentityStore" as IDS
 
 L -> Web : "Adicionar carteira"
 Web -> MM : eth_requestAccounts
 MM --> Web : endereço 0xABC…
-Web -> API : POST /v1/merchants/{id}/wallet/challenge\n{address, chainId}
+Web -> API : POST /v1/merchants/{id}/rails/ethereum/wallet/challenge\n{address, chainId}
 API -> API : monta a mensagem EIP-4361 (nonce aleatório,\nexpira em 10 min) e a assina com HMAC
 API --> Web : mensagem + assinatura do servidor
 note right
@@ -34,17 +35,23 @@ Web -> MM : personal_sign(mensagem)
 MM -> L : mostra a mensagem
 L -> MM : assina
 MM --> Web : assinatura da carteira
-Web -> API : PUT /v1/merchants/{id}/wallet\n{message, serverSignature, walletSignature}
+Web -> API : PUT /v1/merchants/{id}/rails/ethereum/wallet\n{message, serverSignature, walletSignature}
 API -> API : confere a assinatura do servidor (mensagem não\nalterada), domínio, lojista e validade;\nrecupera o endereço da assinatura da carteira (Web3j)
 alt tudo confere
-  API -> DB : UPDATE merchants SET wallet_address = ?
+  API -> IDS : PUT /v1/rails/ethereum/wallets/{walletId}\n{ownerId: merchantId, chainId, address,\nsiweMessage, siweSignature} — mTLS
+  IDS --> API : 201
+  API -> DB : UPDATE merchants SET wallet_id = ?,\nwallet_masked = '0xABC1…9F3c'
   API --> Web : 200
+  opt havia uma carteira anterior
+    API -> IDS : DELETE /v1/rails/ethereum/wallets/{walletIdAnterior}
+  end
 else assinatura inválida ou mensagem expirada
   API --> Web : 400
 end
 note over L, API
-  O desafio não é guardado no banco: a assinatura do servidor
-  garante que a mensagem foi emitida pelo Pixeth, e a validade
-  curta limita a reutilização. A chave privada nunca sai da MetaMask.
+  O desafio não é guardado no processador: a assinatura do servidor
+  garante que a mensagem foi emitida pelo Pixeth, e a validade curta
+  limita a reutilização. A mensagem e a assinatura da carteira ficam
+  no IdentityStore como prova de posse. A chave privada nunca sai da MetaMask.
 end note
 @enduml

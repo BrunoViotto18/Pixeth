@@ -37,7 +37,7 @@ API -> DB : status ACTIVE + série e validade do certificado
 API --> IDS : certificado + certificado da AC
 
 == Uso ==
-W -> IDS : GET /v1/pix-keys/{keyRef}\n(mTLS com o certificado do processador)
+W -> IDS : GET /v1/rails/pix/keys/{keyId}\n(mTLS com o certificado do processador)
 IDS -> IDS : cliente assinado pela AC confiável?
 IDS --> W : chave Pix (só em memória)
 

@@ -15,6 +15,7 @@ box "Pixeth" #F4F7FB
   participant "Workers" as W
 end box
 participant "PSP (API Pix)" as PSP
+participant "IdentityStore" as IDS
 participant "Provedor de conversão\n(simulado)" as PC
 participant "PixethGateway\n(Sepolia)" as GW
 
@@ -48,6 +49,8 @@ W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status 
 
 == 4. Conversão e retenção ==
 W -> DB : CONVERTING
+W -> IDS : GET /v1/rails/ethereum/wallets/{walletId} — mTLS
+IDS --> W : endereço da carteira (só em memória)
 W -> PC : converter R$ 100,00 em ETH para o pagamento
 PC -> GW : hold(paymentId, carteira do lojista,\nreleaseAt = agora + janela) {value: 0,0058 ETH}
 GW --> PC : evento Held

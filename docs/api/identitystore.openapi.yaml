@@ -1,19 +1,24 @@
 openapi: 3.1.0
 info:
   title: Pixeth — contrato do IdentityStore
-  version: 0.3.0
-  summary: Interface que todo IdentityStore implementa para guardar as chaves Pix dos lojistas.
+  version: 0.4.0
+  summary: Interface que todo IdentityStore implementa para guardar os dados pessoais dos lojistas.
   description: |
     O IdentityStore é a parte descentralizada do Pixeth: qualquer operador pode hospedar um,
-    desde que implemente este contrato. Ele guarda o único dado pessoal do sistema, a chave
-    Pix do lojista (que muitas vezes é um CPF, telefone ou e-mail).
+    desde que implemente este contrato. Ele guarda os dados pessoais do lojista — nome,
+    CPF/CNPJ, chaves Pix e carteiras Ethereum — fora do processador. Os identificadores
+    (`ownerId`, `keyId`, `walletId`) são gerados pelo processador, que só guarda esses ids.
+
+    Cada trilho de pagamento tem o próprio recurso (e a própria tabela), com os campos que
+    fazem sentido para ele; um novo trilho acrescenta um novo recurso.
 
     - **Autenticação:** somente mTLS, com certificado do processador emitido pela AC em que
       o IdentityStore foi inscrito.
-    - **Autorização:** um processador só acessa chaves que ele mesmo gravou.
-    - **Idempotência:** `keyRef` e `ownerRef` são escolhidos pelo processador, então repetir
-      um `PUT` não duplica dados.
-    - **Cifragem:** o valor da chave fica cifrado em nível de aplicação.
+    - **Autorização:** um processador só acessa dados que ele mesmo gravou.
+    - **Minimização:** o documento nunca é devolvido; o processador só pergunta se um
+      documento confere.
+    - **Idempotência:** escritas usam `PUT` com identificadores escolhidos pelo processador.
+    - **Cifragem:** campos pessoais ficam cifrados em nível de aplicação.
 servers:
   - url: https://{host}
     variables:
@@ -23,14 +28,86 @@ servers:
 security:
   - processorMtls: []
 
+tags:
+  - name: Titulares
+  - name: Chaves Pix
+  - name: Carteiras Ethereum
+  - name: Operação
+
 paths:
-  /v1/pix-keys/{keyRef}:
+  /v1/owners/{ownerId}:
     parameters:
-      - name: keyRef
+      - $ref: '#/components/parameters/OwnerId'
+    put:
+      tags: [Titulares]
+      operationId: putOwner
+      summary: Registrar o titular (idempotente)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [legalName, document]
+              properties:
+                legalName: { type: string }
+                document:
+                  type: string
+                  description: 'CPF ou CNPJ, somente dígitos'
+                  pattern: '^(\d{11}|\d{14})$'
+      responses:
+        '201': { description: Registrado }
+        '200': { description: Já existia com os mesmos dados }
+    delete:
+      tags: [Titulares]
+      operationId: eraseOwner
+      summary: Eliminar o titular, suas chaves Pix e suas carteiras (LGPD)
+      responses:
+        '204': { description: Dados apagados }
+
+  /v1/owners/{ownerId}/document-match:
+    parameters:
+      - $ref: '#/components/parameters/OwnerId'
+    post:
+      tags: [Titulares]
+      operationId: matchDocument
+      summary: Conferir se o titular de uma chave Pix é o lojista
+      description: |
+        Recebe o documento (completo ou mascarado, como o PSP devolve na consulta da chave) e,
+        opcionalmente, o nome do titular. Compara os dígitos visíveis e o nome; nunca devolve
+        o documento.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document]
+              properties:
+                document:
+                  type: string
+                  description: 'Somente dígitos, ou mascarado com *, por exemplo ***456789**'
+                holderName: { type: string }
+      responses:
+        '200':
+          description: Resultado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matches]
+                properties:
+                  matches: { type: boolean }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/rails/pix/keys/{keyId}:
+    parameters:
+      - name: keyId
         in: path
         required: true
         schema: { type: string, format: uuid }
     put:
+      tags: [Chaves Pix]
       operationId: putPixKey
       summary: Guardar chave Pix (idempotente)
       requestBody:
@@ -39,18 +116,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [ownerRef, type, value]
+              required: [ownerId, type, value]
               properties:
-                ownerRef:
-                  type: string
-                  format: uuid
-                  description: Identificador opaco do lojista no processador.
-                type: { type: string, enum: [CPF, CNPJ, EMAIL, PHONE, EVP] }
+                ownerId: { type: string, format: uuid }
+                type: { $ref: '#/components/schemas/PixKeyType' }
                 value: { type: string }
       responses:
         '201': { description: Guardada }
         '200': { description: Já existia com o mesmo valor }
     get:
+      tags: [Chaves Pix]
       operationId: getPixKey
       summary: Obter chave Pix no momento de um envio
       responses:
@@ -62,29 +137,71 @@ paths:
                 type: object
                 required: [type, value]
                 properties:
-                  type: { type: string, enum: [CPF, CNPJ, EMAIL, PHONE, EVP] }
+                  type: { $ref: '#/components/schemas/PixKeyType' }
                   value: { type: string }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
+      tags: [Chaves Pix]
       operationId: deletePixKey
       summary: Remover chave Pix
       responses:
         '204': { description: Removida }
 
-  /v1/owners/{ownerRef}/pix-keys:
+  /v1/rails/ethereum/wallets/{walletId}:
     parameters:
-      - name: ownerRef
+      - name: walletId
         in: path
         required: true
         schema: { type: string, format: uuid }
-    delete:
-      operationId: eraseOwner
-      summary: Eliminar todas as chaves de um lojista (LGPD)
+    put:
+      tags: [Carteiras Ethereum]
+      operationId: putEthereumWallet
+      summary: Guardar carteira Ethereum com a prova de posse (idempotente)
+      description: |
+        A mensagem SIWE (EIP-4361) e a assinatura da carteira ficam guardadas como evidência de
+        que o lojista controlava o endereço no momento da inscrição.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, chainId, address, siweMessage, siweSignature]
+              properties:
+                ownerId: { type: string, format: uuid }
+                chainId: { type: integer, example: 11155111 }
+                address: { $ref: '#/components/schemas/EthereumAddress' }
+                siweMessage: { type: string }
+                siweSignature: { type: string, pattern: '^0x[0-9a-fA-F]+$' }
       responses:
-        '204': { description: Removidas }
+        '201': { description: Guardada }
+        '200': { description: Já existia com os mesmos dados }
+    get:
+      tags: [Carteiras Ethereum]
+      operationId: getEthereumWallet
+      summary: Obter a carteira no momento de uma entrega
+      responses:
+        '200':
+          description: Carteira
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [chainId, address]
+                properties:
+                  chainId: { type: integer }
+                  address: { $ref: '#/components/schemas/EthereumAddress' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Carteiras Ethereum]
+      operationId: deleteEthereumWallet
+      summary: Remover carteira
+      responses:
+        '204': { description: Removida }
 
   /v1/health:
     get:
+      tags: [Operação]
       operationId: getHealth
       summary: Saúde do serviço e validade do certificado
       responses:
@@ -104,9 +221,17 @@ components:
       type: mutualTLS
       description: 'Certificado do processador (urn:pixeth:processor:{deploymentId}) emitido pela AC da implantação.'
 
+  parameters:
+    OwnerId:
+      name: ownerId
+      in: path
+      required: true
+      description: Id do lojista, gerado pelo processador.
+      schema: { type: string, format: uuid }
+
   responses:
     NotFound:
-      description: Inexistente ou gravada por outro processador
+      description: Inexistente ou gravado por outro processador
       content:
         application/problem+json:
           schema:
@@ -114,3 +239,12 @@ components:
             properties:
               title: { type: string }
               status: { type: integer }
+
+  schemas:
+    PixKeyType:
+      type: string
+      enum: [CPF, CNPJ, EMAIL, PHONE, EVP]
+
+    EthereumAddress:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{40}$'

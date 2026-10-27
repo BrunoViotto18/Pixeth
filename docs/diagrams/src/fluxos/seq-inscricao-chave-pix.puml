@@ -15,20 +15,20 @@ participant "PSP (API Pix)" as PSP
 participant "IdentityStore" as IDS
 
 L -> Web : informa a chave Pix
-Web -> API : PUT /v1/merchants/{id}/pix-key {key}
+Web -> API : PUT /v1/merchants/{id}/rails/pix/key {key}
 API -> PSP : consulta a chave
 PSP --> API : titular (nome, documento mascarado),\ntipo da chave
 API -> IDS : POST /v1/owners/{merchantId}/document-match\n{document mascarado, holderName} — mTLS
 IDS --> API : matches: true / false
 
 alt titular é o lojista
-  API -> API : gera keyRef
-  API -> IDS : PUT /v1/pix-keys/{keyRef}\n{ownerRef: merchantId, type, value} — mTLS
+  API -> API : gera keyId
+  API -> IDS : PUT /v1/rails/pix/keys/{keyId}\n{ownerId: merchantId, type, value} — mTLS
   IDS --> API : 201
-  API -> DB : UPDATE merchants SET pix_key_ref = ?,\npix_key_masked = ?
+  API -> DB : UPDATE merchants SET pix_key_id = ?,\npix_key_masked = ?
   API --> Web : 200 {maskedKey}
   opt havia uma chave anterior
-    API -> IDS : DELETE /v1/pix-keys/{keyRefAnterior}
+    API -> IDS : DELETE /v1/rails/pix/keys/{keyIdAnterior}
   end
 else titular diferente
   API --> Web : 422 "a chave precisa estar no nome do lojista"

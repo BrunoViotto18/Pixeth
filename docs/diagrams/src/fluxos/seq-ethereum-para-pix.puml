@@ -57,7 +57,7 @@ else valor correto
 
   group 5. Pagamento ao lojista
     W -> DB : DELIVERING
-    W -> IDS : GET /v1/pix-keys/{keyRef} — mTLS
+    W -> IDS : GET /v1/rails/pix/keys/{keyId} — mTLS
     IDS --> W : chave Pix (só em memória)
     W -> PSP : envio de Pix (API do PSP)\nchave de idempotência = paymentId
     PSP --> W : endToEndId

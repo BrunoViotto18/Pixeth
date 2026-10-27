@@ -19,8 +19,9 @@ class Merchant {
   id: UUID
   subjectId: String
   displayName: String
-  walletAddress: String
-  pixKeyRef: UUID
+  walletId: UUID
+  walletMasked: String
+  pixKeyId: UUID
   pixKeyMasked: String
   webhookUrl: String
 }
@@ -102,7 +103,7 @@ class IdentityStoreNode {
 }
 
 Money --> Asset
-Merchant --> "1" IdentityStoreNode : chave Pix guardada em
+Merchant --> "1" IdentityStoreNode : dados pessoais em
 Merchant "1" -- "0..*" Payment
 Payment --> Direction
 Payment --> PaymentStatus

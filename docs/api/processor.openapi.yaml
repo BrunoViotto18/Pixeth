@@ -207,7 +207,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Merchant' }
 
-  /v1/merchants/{merchantId}/wallet/challenge:
+  /v1/merchants/{merchantId}/rails/ethereum/wallet/challenge:
     parameters:
       - $ref: '#/components/parameters/MerchantId'
     post:
@@ -240,13 +240,16 @@ paths:
                   serverSignature: { type: string }
                   expiresAt: { type: string, format: date-time }
 
-  /v1/merchants/{merchantId}/wallet:
+  /v1/merchants/{merchantId}/rails/ethereum/wallet:
     parameters:
       - $ref: '#/components/parameters/MerchantId'
     put:
       tags: [Lojistas]
       operationId: setWallet
       summary: Inscrever (ou trocar) a carteira de recebimento
+      description: |
+        Depois de conferir as assinaturas, a carteira e a prova de posse vão para o IdentityStore;
+        o processador guarda só a referência e o endereço mascarado.
       security:
         - userBearer: []
       requestBody:
@@ -280,7 +283,7 @@ paths:
       responses:
         '204': { description: Removida }
 
-  /v1/merchants/{merchantId}/pix-key:
+  /v1/merchants/{merchantId}/rails/pix/key:
     parameters:
       - $ref: '#/components/parameters/MerchantId'
     put:
@@ -486,7 +489,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
-  /v1/psp/{pspId}/pix:
+  /v1/rails/pix/psps/{pspId}/pix:
     parameters:
       - $ref: '#/components/parameters/PspId'
     post:
@@ -494,7 +497,8 @@ paths:
       operationId: receivePixWebhook
       summary: Webhook de Pix recebidos (formato da API Pix do BCB)
       description: |
-        Cada Pix vira uma tarefa com `dedup_key = pix:{endToEndId}` (repetições são descartadas)
+        URL registrada no PSP: `/v1/rails/pix/psps/{pspId}`; pela especificação do BCB, o PSP
+        acrescenta `/pix` ao enviar. Cada Pix vira uma tarefa com `dedup_key = pix:{endToEndId}` (repetições são descartadas)
         e é reconsultado com `GET /pix/{e2eid}` antes de qualquer efeito. Responde 200 também
         para duplicados.
       security:
@@ -520,7 +524,7 @@ paths:
       responses:
         '200': { description: Recebido }
 
-  /v1/psp/{pspId}/infractions:
+  /v1/rails/pix/psps/{pspId}/infractions:
     parameters:
       - $ref: '#/components/parameters/PspId'
     post:
@@ -851,7 +855,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         displayName: { type: string }
-        walletAddress: { oneOf: [{ $ref: '#/components/schemas/EthereumAddress' }, { type: 'null' }] }
+        walletMasked: { type: [string, 'null'], example: '0xABC1…9F3c' }
         pixKeyMasked: { type: [string, 'null'], example: '***.456.789-**' }
         webhookUrl: { type: [string, 'null'], format: uri }
         createdAt: { type: string, format: date-time }

@@ -41,6 +41,7 @@ SL --> UC_Notif
 UC_Carteira ..> UC_Siwe : <<include>>
 UC_ChavePix ..> UC_Titular : <<include>>
 UC_Cadastro --> IDS
+UC_Carteira --> IDS
 UC_Titular --> PSP
 UC_Titular --> IDS
 @enduml

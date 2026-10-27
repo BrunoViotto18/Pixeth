@@ -58,11 +58,14 @@ class MockConversionProvider
 class HttpConversionProvider <<futuro>>
 
 interface IdentityStore {
-  +putOwner(ownerRef: UUID, legalName: String, document: String)
-  +matchesDocument(ownerRef: UUID, document: String, holderName: String): boolean
-  +putPixKey(keyRef: UUID, ownerRef: UUID, key: PixKey)
-  +getPixKey(keyRef: UUID): PixKey
-  +deletePixKey(keyRef: UUID)
+  +putOwner(ownerId: UUID, legalName: String, document: String)
+  +matchesDocument(ownerId: UUID, document: String, holderName: String): boolean
+  +putPixKey(keyId: UUID, ownerId: UUID, key: PixKey)
+  +getPixKey(keyId: UUID): PixKey
+  +deletePixKey(keyId: UUID)
+  +putEthereumWallet(walletId: UUID, ownerId: UUID, wallet: EthereumWallet)
+  +getEthereumWallet(walletId: UUID): EthereumWallet
+  +deleteEthereumWallet(walletId: UUID)
 }
 class MtlsIdentityStoreClient
 

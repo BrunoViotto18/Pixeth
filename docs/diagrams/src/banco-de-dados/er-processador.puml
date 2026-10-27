@@ -12,8 +12,9 @@ entity merchants {
   * subject_id : text <<UK>>
   * display_name : text
   * identity_store_id : uuid <<FK>>
-  wallet_address : text
-  pix_key_ref : uuid
+  wallet_id : uuid
+  wallet_masked : text
+  pix_key_id : uuid
   pix_key_masked : text
   webhook_url : text
   webhook_secret : text
@@ -104,9 +105,10 @@ note bottom of payments
 end note
 
 note bottom of merchants
-  Dados pessoais ficam fora: nome, CPF/CNPJ e
-  chave Pix estão no IdentityStore (ref = id) e o
-  e-mail de acesso no Keycloak (subject_id). webhook_secret fica
+  Dados pessoais ficam fora: nome, CPF/CNPJ, chave
+  Pix e carteira estão no IdentityStore (mesmo id
+  do lojista; wallet_id e pix_key_id apontam para
+  lá) e o e-mail de acesso no Keycloak (subject_id). webhook_secret fica
   cifrado com chave em Kubernetes Secret.
 end note
 @enduml
