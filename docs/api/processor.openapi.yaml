@@ -9,8 +9,8 @@ info:
     - **Sistema do lojista:** cria e consulta pagamentos com OAuth 2.0 *client credentials*
       (Keycloak). O *token* traz a *claim* `merchant_id`.
     - **Aplicação web:** lojistas e operadores autenticados por OIDC (Keycloak, com MFA).
-    - **Checkout:** página pública do pagador, identificada por um `checkoutId` aleatório.
-    - **Máquinas:** IdentityStores (inscrição de certificado) e PSP (*webhooks*), via mTLS.
+    - **Checkout:** página pública do pagador, identificada pelo id do pagamento (UUID aleatório).
+    - **Máquinas:** IdentityStores (renovação de certificado) e PSP (*webhooks*), via mTLS.
 
     Regras gerais:
 
@@ -27,7 +27,6 @@ tags:
   - name: Checkout
   - name: Lojistas
   - name: Integração
-  - name: Inscrição de IdentityStores
   - name: PSP
   - name: Administração
 
@@ -41,8 +40,8 @@ paths:
       operationId: createPayment
       summary: Criar pagamento
       description: |
-        Síncrono e idempotente. `PIX_TO_ETH`: cria a cobrança no PSP e devolve o BR Code.
-        `ETH_TO_PIX`: obtém a cotação e devolve o valor em ETH e os dados do contrato.
+        Síncrono e idempotente. Origem `PIX`: cria a cobrança no PSP e devolve o BR Code.
+        Origem `ETHEREUM`: obtém a cotação e devolve o valor em ETH e os dados do contrato.
       security:
         - merchantClient: [payments:write]
         - userBearer: []
@@ -59,12 +58,16 @@ paths:
             examples:
               pixParaEthereum:
                 value:
-                  direction: PIX_TO_ETH
+                  sourceRail: PIX
+                  destinationRail: ETHEREUM
+                  destinationId: 7c1e5d2a-0d6b-4f0e-9a3b-2f4c8e1d9b10
                   amount: { value: '100.00', asset: BRL }
                   description: Pedido 1234
               ethereumParaPix:
                 value:
-                  direction: ETH_TO_PIX
+                  sourceRail: ETHEREUM
+                  destinationRail: PIX
+                  destinationId: 3a9f0c4e-6b21-4d7a-8c55-1e2b3c4d5e6f
                   amount: { value: '100.00', asset: BRL }
                   description: Pedido 1235
       responses:
@@ -81,7 +84,7 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
         '409':
-          description: Lojista sem carteira (PIX_TO_ETH) ou sem chave Pix (ETH_TO_PIX)
+          description: Destino inexistente, de outro lojista ou de outro trilho que não o de destino
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -121,7 +124,6 @@ paths:
       tags: [Pagamentos]
       operationId: getPayment
       summary: Consultar pagamento
-      description: Fonte da verdade; os *webhooks* apenas avisam que algo mudou.
       security:
         - merchantClient: [payments:read]
         - userBearer: []
@@ -133,12 +135,9 @@ paths:
               schema: { $ref: '#/components/schemas/Payment' }
         '404': { $ref: '#/components/responses/Problem' }
 
-  /v1/checkout/{checkoutId}:
+  /v1/checkout/{paymentId}:
     parameters:
-      - name: checkoutId
-        in: path
-        required: true
-        schema: { type: string, minLength: 32 }
+      - $ref: '#/components/parameters/PaymentId'
     get:
       tags: [Checkout]
       operationId: getCheckout
@@ -207,7 +206,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Merchant' }
 
-  /v1/merchants/{merchantId}/rails/ethereum/wallet/challenge:
+  /v1/merchants/{merchantId}/rails/ethereum/wallets/challenge:
     parameters:
       - $ref: '#/components/parameters/MerchantId'
     post:
@@ -240,16 +239,30 @@ paths:
                   serverSignature: { type: string }
                   expiresAt: { type: string, format: date-time }
 
-  /v1/merchants/{merchantId}/rails/ethereum/wallet:
+  /v1/merchants/{merchantId}/rails/ethereum/wallets:
     parameters:
       - $ref: '#/components/parameters/MerchantId'
-    put:
+    get:
       tags: [Lojistas]
-      operationId: setWallet
-      summary: Inscrever (ou trocar) a carteira de recebimento
+      operationId: listWallets
+      summary: Listar as carteiras do lojista (versões mascaradas, lidas do IdentityStore)
+      security:
+        - userBearer: []
+      responses:
+        '200':
+          description: Carteiras
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MaskedDestination' }
+    post:
+      tags: [Lojistas]
+      operationId: addWallet
+      summary: Inscrever uma carteira de recebimento
       description: |
         Depois de conferir as assinaturas, a carteira e a prova de posse vão para o IdentityStore;
-        o processador guarda só a referência e o endereço mascarado.
+        o processador não guarda nada sobre ela.
       security:
         - userBearer: []
       requestBody:
@@ -264,36 +277,58 @@ paths:
                 serverSignature: { type: string }
                 walletSignature: { type: string, pattern: '^0x[0-9a-fA-F]+$' }
       responses:
-        '200':
+        '201':
           description: Carteira inscrita
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Merchant' }
+              schema: { $ref: '#/components/schemas/MaskedDestination' }
         '400':
           description: Assinatura inválida ou mensagem expirada
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/merchants/{merchantId}/rails/ethereum/wallets/{walletId}:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+      - name: walletId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
     delete:
       tags: [Lojistas]
       operationId: removeWallet
-      summary: Remover a carteira
+      summary: Remover uma carteira
       security:
         - userBearer: []
       responses:
         '204': { description: Removida }
 
-  /v1/merchants/{merchantId}/rails/pix/key:
+  /v1/merchants/{merchantId}/rails/pix/keys:
     parameters:
       - $ref: '#/components/parameters/MerchantId'
-    put:
+    get:
       tags: [Lojistas]
-      operationId: setPixKey
-      summary: Inscrever (ou trocar) a chave Pix de recebimento
+      operationId: listPixKeys
+      summary: Listar as chaves Pix do lojista (versões mascaradas, lidas do IdentityStore)
+      security:
+        - userBearer: []
+      responses:
+        '200':
+          description: Chaves
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MaskedDestination' }
+    post:
+      tags: [Lojistas]
+      operationId: addPixKey
+      summary: Inscrever uma chave Pix de recebimento
       description: |
         A chave é consultada no PSP e só é aceita se o titular for o próprio lojista (documento
-        conferido pelo IdentityStore). O valor vai para o IdentityStore; o processador guarda só
-        a referência e a versão mascarada.
+        conferido pelo IdentityStore). O valor vai para o IdentityStore; o processador não guarda
+        nada sobre ela.
       security:
         - userBearer: []
       requestBody:
@@ -306,11 +341,11 @@ paths:
               properties:
                 key: { type: string }
       responses:
-        '200':
+        '201':
           description: Chave inscrita
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Merchant' }
+              schema: { $ref: '#/components/schemas/MaskedDestination' }
         '404':
           description: Chave não encontrada no PSP
           content:
@@ -321,10 +356,18 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/merchants/{merchantId}/rails/pix/keys/{keyId}:
+    parameters:
+      - $ref: '#/components/parameters/MerchantId'
+      - name: keyId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
     delete:
       tags: [Lojistas]
       operationId: removePixKey
-      summary: Remover a chave Pix
+      summary: Remover uma chave Pix
       security:
         - userBearer: []
       responses:
@@ -392,80 +435,11 @@ paths:
       responses:
         '204': { description: Revogada }
 
-  /v1/merchants/{merchantId}/webhook:
-    parameters:
-      - $ref: '#/components/parameters/MerchantId'
-    put:
-      tags: [Integração]
-      operationId: setWebhook
-      summary: Definir a URL de webhook (somente HTTPS) e gerar um novo segredo
-      security:
-        - userBearer: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [url]
-              properties:
-                url: { type: string, format: uri }
-      responses:
-        '200':
-          description: Webhook definido; o segredo de assinatura é exibido uma única vez
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [url, signingSecret]
-                properties:
-                  url: { type: string, format: uri }
-                  signingSecret: { type: string }
-    delete:
-      tags: [Integração]
-      operationId: removeWebhook
-      summary: Remover o webhook
-      security:
-        - userBearer: []
-      responses:
-        '204': { description: Removido }
-
-  /v1/enrollment:
+  /v1/certificates/renew:
     post:
-      tags: [Inscrição de IdentityStores]
-      operationId: enroll
-      summary: Trocar token de inscrição + CSR por certificado
-      description: |
-        TLS só com autenticação do servidor; o IdentityStore confere a AC pela impressão
-        digital recebida com o token. O token é de uso único.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [token, csr]
-              properties:
-                token: { type: string }
-                csr: { type: string, description: CSR PKCS#10 em PEM }
-      responses:
-        '201':
-          description: Certificado emitido
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IssuedCertificate' }
-        '401':
-          description: Token inválido, usado ou expirado
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-
-  /v1/enrollment/renew:
-    post:
-      tags: [Inscrição de IdentityStores]
+      tags: [Administração]
       operationId: renew
-      summary: Renovar certificado usando o certificado atual
+      summary: IdentityStore renova o próprio certificado usando o certificado atual
       security:
         - mtls: []
       requestBody:
@@ -612,7 +586,10 @@ paths:
     post:
       tags: [Administração]
       operationId: createIdentityStore
-      summary: Emitir token de inscrição de IdentityStore
+      summary: Inscrever um IdentityStore (manual, pelo operador)
+      description: |
+        O operador envia o CSR gerado no IdentityStore e recebe o certificado assinado pela AC,
+        que instala no IdentityStore junto com o certificado da AC. Não há token de inscrição.
       security:
         - operatorBearer: []
       requestBody:
@@ -621,22 +598,22 @@ paths:
           application/json:
             schema:
               type: object
-              required: [baseUrl]
+              required: [baseUrl, csr]
               properties:
                 baseUrl: { type: string, format: uri }
+                csr: { type: string, description: CSR PKCS#10 em PEM }
       responses:
         '201':
-          description: Token emitido (exibido uma única vez)
+          description: IdentityStore inscrito e certificado emitido
           content:
             application/json:
               schema:
-                type: object
-                required: [identityStoreId, enrollmentToken, caFingerprintSha256, expiresAt]
-                properties:
-                  identityStoreId: { type: string, format: uuid }
-                  enrollmentToken: { type: string }
-                  caFingerprintSha256: { type: string }
-                  expiresAt: { type: string, format: date-time }
+                allOf:
+                  - type: object
+                    required: [identityStoreId]
+                    properties:
+                      identityStoreId: { type: string, format: uuid }
+                  - $ref: '#/components/schemas/IssuedCertificate'
 
   /v1/admin/identity-stores/{identityStoreId}/revoke:
     parameters:
@@ -652,35 +629,6 @@ paths:
         - operatorBearer: []
       responses:
         '204': { description: Revogado }
-
-webhooks:
-  paymentEvent:
-    post:
-      summary: Evento enviado à URL de webhook do lojista
-      description: |
-        `Pixeth-Signature: v1=<HMAC-SHA256(segredo, Pixeth-Timestamp + "." + corpo)>`.
-        O lojista confere a assinatura, recusa timestamps com mais de 5 minutos de diferença
-        e ignora `Pixeth-Event-Id` já processado.
-      parameters:
-        - name: Pixeth-Event-Id
-          in: header
-          required: true
-          schema: { type: string }
-        - name: Pixeth-Timestamp
-          in: header
-          required: true
-          schema: { type: integer }
-        - name: Pixeth-Signature
-          in: header
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/WebhookEvent' }
-      responses:
-        '2XX': { description: Recebido }
 
 components:
   securitySchemes:
@@ -748,9 +696,10 @@ components:
       type: string
       pattern: '^0x[0-9a-fA-F]{40}$'
 
-    Direction:
+    Rail:
       type: string
-      enum: [PIX_TO_ETH, ETH_TO_PIX]
+      enum: [PIX, ETHEREUM]
+      description: Sistema de pagamento. Novos trilhos entram como novos valores.
 
     PaymentStatus:
       type: string
@@ -762,12 +711,23 @@ components:
 
     PaymentCreateRequest:
       type: object
-      required: [direction, amount]
+      required: [sourceRail, destinationRail, amount, destinationId]
       properties:
-        direction: { $ref: '#/components/schemas/Direction' }
+        sourceRail:
+          $ref: '#/components/schemas/Rail'
+          description: Onde o pagador paga.
+        destinationRail:
+          $ref: '#/components/schemas/Rail'
+          description: Onde o lojista recebe.
+        destinationId:
+          type: string
+          format: uuid
+          description: |
+            Destino do lojista no trilho de destino: id de uma carteira (ETHEREUM) ou de uma chave
+            Pix (PIX). Obrigatório; não há destino padrão.
         amount:
           $ref: '#/components/schemas/Money'
-          description: Valor do pagamento em BRL.
+          description: Valor do pagamento, em qualquer ativo suportado.
         description:
           type: string
           maxLength: 140
@@ -775,19 +735,21 @@ components:
 
     Payment:
       type: object
-      required: [id, direction, amount, status, checkoutUrl, expiresAt, createdAt]
+      required: [id, sourceRail, destinationRail, amount, status, checkoutUrl, expiresAt, createdAt]
       properties:
         id: { type: string, format: uuid }
-        direction: { $ref: '#/components/schemas/Direction' }
+        sourceRail: { $ref: '#/components/schemas/Rail' }
+        destinationRail: { $ref: '#/components/schemas/Rail' }
         amount: { $ref: '#/components/schemas/Money' }
         status: { $ref: '#/components/schemas/PaymentStatus' }
+        destinationId: { type: string, format: uuid }
         checkoutUrl: { type: string, format: uri }
         pixCopiaECola:
           type: string
-          description: Presente em PIX_TO_ETH.
+          description: Presente quando sourceRail = PIX.
         ethereum:
           type: object
-          description: Presente em ETH_TO_PIX.
+          description: Presente quando sourceRail = ETHEREUM.
           properties:
             chainId: { type: integer }
             contractAddress: { $ref: '#/components/schemas/EthereumAddress' }
@@ -797,7 +759,7 @@ components:
         holdReleaseAt:
           type: [string, 'null']
           format: date-time
-          description: Em PIX_TO_ETH, quando o valor retido será liberado ao lojista.
+          description: Quando destinationRail = ETHEREUM, quando o valor retido será liberado ao lojista.
         medStatus:
           oneOf:
             - $ref: '#/components/schemas/MedStatus'
@@ -830,12 +792,12 @@ components:
 
     Checkout:
       type: object
-      required: [status, direction, amount, merchantDisplayName, expiresAt]
+      required: [status, sourceRail, amount, merchantDisplayName, expiresAt]
       properties:
         status:
           type: string
           enum: [AWAITING_PAYMENT, PROCESSING, COMPLETED, EXPIRED, REFUNDED]
-        direction: { $ref: '#/components/schemas/Direction' }
+        sourceRail: { $ref: '#/components/schemas/Rail' }
         amount: { $ref: '#/components/schemas/Money' }
         merchantDisplayName: { type: string }
         description: { type: string }
@@ -855,10 +817,16 @@ components:
       properties:
         id: { type: string, format: uuid }
         displayName: { type: string }
-        walletMasked: { type: [string, 'null'], example: '0xABC1…9F3c' }
-        pixKeyMasked: { type: [string, 'null'], example: '***.456.789-**' }
-        webhookUrl: { type: [string, 'null'], format: uri }
         createdAt: { type: string, format: date-time }
+
+    MaskedDestination:
+      type: object
+      required: [id, masked]
+      properties:
+        id: { type: string, format: uuid, description: Id gerado pelo IdentityStore }
+        masked: { type: string, example: '***.456.789-**' }
+        pixKeyType: { type: string, enum: [CPF, CNPJ, EMAIL, PHONE, EVP], description: Só para chaves Pix }
+        chainId: { type: integer, description: Só para carteiras }
 
     ApiClient:
       type: object
@@ -866,22 +834,6 @@ components:
       properties:
         clientId: { type: string }
         name: { type: string }
-
-    WebhookEvent:
-      type: object
-      required: [id, type, createdAt, data]
-      properties:
-        id: { type: string }
-        type:
-          type: string
-          enum: [payment.paid, payment.held, payment.completed, payment.expired, payment.refunded, payment.reversed, payment.failed]
-        createdAt: { type: string, format: date-time }
-        data:
-          type: object
-          required: [paymentId, status]
-          properties:
-            paymentId: { type: string, format: uuid }
-            status: { $ref: '#/components/schemas/PaymentStatus' }
 
     IssuedCertificate:
       type: object

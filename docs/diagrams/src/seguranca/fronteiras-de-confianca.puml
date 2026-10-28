@@ -45,7 +45,6 @@ tApi --> tIds : [8] mTLS mútuo (AC do processador)
 tWorkers --> tIds
 tWorkers --> tRpc : [9] JSON-RPC sobre TLS
 tWorkers --> tContract : [10] operator só aciona;\no contrato fixa os destinos
-tWorkers --> tSL : [11] webhook assinado (HMAC);\no lojista reconsulta a API
 
 note bottom of ZChain
   Mesmo com o back-end comprometido, o contrato

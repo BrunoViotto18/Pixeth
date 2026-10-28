@@ -32,6 +32,5 @@ if (conversão concluída?) then (não)
 else (sim)
 endif
 :status → HELD;
-:webhook payment.held;
 stop
 @enduml

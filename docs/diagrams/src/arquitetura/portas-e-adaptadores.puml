@@ -15,9 +15,9 @@ interface PaymentRail {
   +id(): RailId
   +capabilities(): RailCapabilities
   +createCollection(payment: Payment): Collection
-  +confirm(externalId: String): Transaction
-  +refund(payment: Payment): Transaction
-  +payout(payment: Payment, destination: Destination): Transaction
+  +confirm(externalId: String): RailResult
+  +refund(payment: Payment): RailResult
+  +payout(payment: Payment, destination: Destination): RailResult
 }
 
 class RailCapabilities <<record>> {
@@ -58,21 +58,18 @@ class MockConversionProvider
 class HttpConversionProvider <<futuro>>
 
 interface IdentityStore {
-  +putOwner(ownerId: UUID, legalName: String, document: String)
+  +createOwner(idempotencyKey: String, legalName: String, document: String): UUID
   +matchesDocument(ownerId: UUID, document: String, holderName: String): boolean
-  +putPixKey(keyId: UUID, ownerId: UUID, key: PixKey)
+  +addPixKey(ownerId: UUID, key: PixKey): MaskedRef
+  +listPixKeys(ownerId: UUID): List<MaskedRef>
   +getPixKey(keyId: UUID): PixKey
   +deletePixKey(keyId: UUID)
-  +putEthereumWallet(walletId: UUID, ownerId: UUID, wallet: EthereumWallet)
+  +addEthereumWallet(ownerId: UUID, wallet: EthereumWallet): MaskedRef
+  +listEthereumWallets(ownerId: UUID): List<MaskedRef>
   +getEthereumWallet(walletId: UUID): EthereumWallet
   +deleteEthereumWallet(walletId: UUID)
 }
 class MtlsIdentityStoreClient
-
-interface MerchantNotifier {
-  +deliver(endpoint: WebhookEndpoint, event: PaymentEvent): boolean
-}
-class SignedWebhookNotifier
 
 interface JobQueue {
   +enqueue(type: String, paymentId: UUID, payload: Json)
@@ -90,7 +87,6 @@ EthereumRail --> PixethGatewayContract
 ConversionProvider <|.. MockConversionProvider
 ConversionProvider <|.. HttpConversionProvider
 IdentityStore <|.. MtlsIdentityStoreClient
-MerchantNotifier <|.. SignedWebhookNotifier
 JobQueue <|.. OutboxJobQueue
 
 note bottom of OutboxJobQueue

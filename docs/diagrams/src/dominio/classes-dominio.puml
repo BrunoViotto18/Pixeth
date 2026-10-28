@@ -6,7 +6,7 @@ title Modelo de domínio
 hide empty members
 
 class Money <<value>> {
-  amountMinor: BigInteger
+  amount: BigInteger
   asset: Asset
 }
 
@@ -19,31 +19,50 @@ class Merchant {
   id: UUID
   subjectId: String
   displayName: String
-  walletId: UUID
-  walletMasked: String
-  pixKeyId: UUID
-  pixKeyMasked: String
-  webhookUrl: String
+  ownerId: UUID
 }
 
 class Payment {
   id: UUID
-  direction: Direction
+  sourceRail: Rail
+  destinationRail: Rail
   amount: Money
   status: PaymentStatus
-  collectionReference: String
-  collectionInstructions: String
-  quote: Money
-  quoteExpiresAt: Instant
-  holdReleaseAt: Instant
-  medStatus: MedStatus
-  idempotencyKey: String
   expiresAt: Instant
 }
 
-enum Direction {
-  PIX_TO_ETH
-  ETH_TO_PIX
+package "pix" {
+  class PixCharge {
+    txid: String
+    brCode: String
+    expiresAt: Instant
+    medStatus: MedStatus
+  }
+
+  class PixPayout {
+    keyId: UUID
+  }
+}
+
+package "ethereum" {
+  class EthereumCharge {
+    onchainId: Bytes32
+    amount: Money
+    quoteExpiresAt: Instant
+  }
+
+  class EthereumPayout {
+    walletId: UUID
+  }
+
+  class EthereumHold {
+    releaseAt: Instant
+  }
+}
+
+enum Rail {
+  PIX
+  ETHEREUM
 }
 
 enum PaymentStatus {
@@ -67,14 +86,27 @@ enum MedStatus {
   CLOSED
 }
 
-class Transaction <<imutável>> {
-  kind: TransactionKind
+class JournalEntry <<imutável>> {
+  kind: EntryKind
   externalId: String
-  amount: Money
   occurredAt: Instant
 }
 
-enum TransactionKind {
+class Posting <<imutável>> {
+  account: LedgerAccount
+  amount: Money
+}
+
+enum LedgerAccount {
+  PAYER
+  MERCHANT
+  PIX_ACCOUNT
+  CONTRACT_ESCROW
+  CONVERSION_PROVIDER
+  RECOVERY
+}
+
+enum EntryKind {
   PIX_IN
   PIX_OUT
   PIX_REFUND
@@ -105,16 +137,24 @@ class IdentityStoreNode {
 Money --> Asset
 Merchant --> "1" IdentityStoreNode : dados pessoais em
 Merchant "1" -- "0..*" Payment
-Payment --> Direction
+Payment --> Rail
 Payment --> PaymentStatus
-Payment --> MedStatus
-Payment *-- "0..*" Transaction
+PixCharge --> MedStatus
+Payment *-- "0..1" PixCharge : pagador em Pix
+Payment *-- "0..1" EthereumCharge : pagador em Ethereum
+Payment *-- "0..1" EthereumPayout : lojista recebe em Ethereum
+Payment *-- "0..1" EthereumHold : retenção no contrato
+Payment *-- "0..1" PixPayout : lojista recebe em Pix
+Payment *-- "0..*" JournalEntry
+JournalEntry *-- "2..*" Posting
+Posting --> LedgerAccount
 Payment "0..1" -- "0..*" Job
-Transaction --> TransactionKind
+JournalEntry --> EntryKind
 
-note right of Transaction
-  Cada movimento de dinheiro, em qualquer trilho,
-  vira uma transação com o identificador externo
-  (endToEndId ou txHash): é a trilha de auditoria.
+note right of JournalEntry
+  Livro-razão por partidas dobradas: cada movimento
+  de dinheiro é um lançamento com partidas que somam
+  zero por ativo; external_id guarda o endToEndId ou
+  o txHash do movimento.
 end note
 @enduml

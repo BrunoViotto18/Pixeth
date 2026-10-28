@@ -3,7 +3,7 @@
 hide footbox
 autonumber
 
-title Inscrição e uso de um IdentityStore (mTLS com AC centralizada)
+title Inscrição manual e uso de um IdentityStore (mTLS com AC centralizada)
 
 actor "Operador" as O
 box "Pixeth (centralizado)" #F4F7FB
@@ -16,33 +16,24 @@ box "IdentityStore (descentralizado)" #FBF7F0
   participant "API do IdentityStore" as IDS
 end box
 
-== Token de inscrição ==
-O -> Web : "Inscrever IdentityStore" (URL base)
-Web -> API : POST /v1/admin/identity-stores
-API -> DB : INSERT identity_stores (PENDING,\nhash do token, expira em 30 min)
-API --> Web : token (exibido uma vez) + impressão digital da AC
-O -> IDS : configura o token e a impressão digital
+== Inscrição (manual) ==
+O -> IDS : gera o par de chaves e o CSR
+note right : a chave privada nunca sai do IdentityStore
+IDS --> O : CSR (PEM)
+O -> Web : "Inscrever IdentityStore" (URL base + CSR)
+Web -> API : POST /v1/admin/identity-stores {baseUrl, csr}\n— Bearer (operador, MFA)
+API -> API : valida o CSR e o assina com a AC\n(SAN urn:pixeth:identity-store:{id}, 30 dias)
+API -> DB : INSERT identity_stores (ACTIVE,\nsérie e validade do certificado)
+API --> Web : certificado + certificado da AC
+O -> IDS : instala o certificado e o certificado da AC
 
-== Inscrição ==
-IDS -> IDS : gera o par de chaves e o CSR
-IDS -> API : POST /v1/enrollment {token, csr}
-note right
-  TLS só com autenticação do servidor;
-  o IdentityStore confere a AC pela
-  impressão digital recebida.
-end note
-API -> DB : UPDATE identity_stores SET enrollment_token_hash = NULL\nWHERE enrollment_token_hash = ? AND enrollment_expires_at > now()\n(uso único)
-API -> API : assina o CSR com a AC\n(SAN urn:pixeth:identity-store:{id}, 30 dias)
-API -> DB : status ACTIVE + série e validade do certificado
-API --> IDS : certificado + certificado da AC
-
-== Uso ==
+== Uso (mTLS nos dois sentidos) ==
 W -> IDS : GET /v1/rails/pix/keys/{keyId}\n(mTLS com o certificado do processador)
 IDS -> IDS : cliente assinado pela AC confiável?
 IDS --> W : chave Pix (só em memória)
 
 == Renovação e revogação ==
-IDS -> API : POST /v1/enrollment/renew {csr} — mTLS com o certificado atual
+IDS -> API : POST /v1/certificates/renew {csr} — mTLS com o certificado atual
 API --> IDS : novo certificado
 O -> API : POST /v1/admin/identity-stores/{id}/revoke
 API -> DB : status REVOKED; conexões seguintes são recusadas

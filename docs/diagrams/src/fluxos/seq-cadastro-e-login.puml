@@ -24,15 +24,15 @@ Web -> KC : code + code_verifier
 KC --> Web : access token, refresh token, ID token
 L -> Web : nome de exibição, nome/razão social, CPF/CNPJ
 Web -> API : POST /v1/merchants — Bearer
-API -> API : valida o JWT (JWKS), lê o sub e gera o merchantId
-API -> IDS : PUT /v1/owners/{merchantId}\n{legalName, document} — mTLS
-IDS --> API : 201
-API -> DB : INSERT merchants (subject_id = sub)\nON CONFLICT (subject_id) DO NOTHING
+API -> API : valida o JWT (JWKS) e lê o sub
+API -> IDS : POST /v1/owners {legalName, document}\nIdempotency-Key = sub — mTLS
+IDS --> API : 201 {id} (ou o mesmo id, se repetido)
+API -> DB : INSERT merchants (subject_id = sub,\nidentity_store_id, owner_id = id)\nON CONFLICT (subject_id) DO NOTHING
 API --> Web : 201 {merchantId}
 note over KC, IDS
   E-mail e senha ficam no Keycloak; nome e documento, no IdentityStore.
-  O processador guarda só o sub e o merchantId (identificadores opacos).
-  Repetir o PUT no IdentityStore é seguro: o merchantId é escolhido pelo processador.
+  O id do titular é gerado pelo IdentityStore; o processador só o registra (owner_id).
+  Repetir a chamada é seguro: a Idempotency-Key devolve o titular já criado.
 end note
 
 == Autenticação nas visitas seguintes ==

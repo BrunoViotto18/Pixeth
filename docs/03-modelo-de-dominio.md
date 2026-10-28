@@ -1,6 +1,6 @@
 # 3. Modelo de domínio
 
-`Payment` guarda a direção (`PIX_TO_ETH` ou `ETH_TO_PIX`), o valor em BRL e o estado. Cada movimento de dinheiro, em qualquer trilho, vira uma `Transaction` com o identificador externo (`endToEndId` ou `txHash`), o que forma a trilha de auditoria do pagamento. Cada lojista tem uma carteira e uma chave Pix. Nome, CPF/CNPJ, a chave e a carteira ficam no IdentityStore; o processador guarda só o `id` do lojista (usado como referência no IdentityStore) e, para a chave e a carteira, a referência e a versão mascarada. Tarefas assíncronas (`Job`) também fazem a deduplicação.
+`Payment` guarda o trilho de origem e o de destino (`PIX` ou `ETHEREUM`, em qualquer combinação), o valor com o seu ativo e o estado. Cada movimento de dinheiro, em qualquer trilho, vira um lançamento no livro-razão (`JournalEntry`), com partidas (`Posting`) que somam zero por ativo e o identificador externo (`endToEndId` ou `txHash`). Nome, CPF/CNPJ, chaves Pix e carteiras do lojista ficam no IdentityStore, que gera os próprios ids; o processador só registra esses ids (`ownerId`, e em cada pagamento o `keyId` ou `walletId` de destino, sempre informado explicitamente). Tarefas assíncronas (`Job`) também fazem a deduplicação.
 
 ![Modelo de domínio](diagrams/svg/dominio/classes-dominio.svg)
 

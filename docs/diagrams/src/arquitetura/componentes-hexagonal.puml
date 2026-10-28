@@ -21,7 +21,6 @@ package "Núcleo" {
   interface "PaymentRail" as IRail
   interface "ConversionProvider" as IConv
   interface "IdentityStore" as IIdentity
-  interface "MerchantNotifier" as INotifier
   interface "JobQueue" as IJobs
   interface "Repositórios" as IRepo
 }
@@ -31,7 +30,6 @@ package "Adaptadores de saída" {
   component "Trilho Ethereum\n(Web3j + PixethGateway)" as ethRail
   component "Conversão simulada" as convMock
   component "Cliente IdentityStore\n(mTLS)" as idClient
-  component "Webhooks assinados" as webhookOut
   component "Tabela de tarefas\n(outbox)" as jobTable
   component "Repositórios\n(PostgreSQL)" as jpa
 }
@@ -46,7 +44,6 @@ schedulers --> orch
 
 orch ..> IRail
 orch ..> IConv
-orch ..> INotifier
 orch ..> IJobs
 orch ..> IRepo
 merchants ..> IIdentity
@@ -56,7 +53,6 @@ IRail -- pixRail
 IRail -- ethRail
 IConv -- convMock
 IIdentity -- idClient
-INotifier -- webhookOut
 IJobs -- jobTable
 IRepo -- jpa
 

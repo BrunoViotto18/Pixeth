@@ -16,7 +16,6 @@ rectangle "Pixeth" {
   usecase "Intervir em pagamento com falha" as UC_Intervir
   usecase "Expirar cobranças e cotações" as UC_Expirar
   usecase "Liberar retenções vencidas" as UC_Liberar
-  usecase "Reenviar webhooks com falha" as UC_Reenviar
 }
 
 O --> UC_Inscrever
@@ -25,6 +24,5 @@ O --> UC_Med
 O --> UC_Intervir
 T --> UC_Expirar
 T --> UC_Liberar
-T --> UC_Reenviar
 UC_Recuperar ..> UC_Med : <<extend>>
 @enduml

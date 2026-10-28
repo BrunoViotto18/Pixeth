@@ -6,13 +6,22 @@ title Banco do IdentityStore
 hide circle
 skinparam linetype ortho
 
-package "identity" {
-  entity "identity.owners" as owners {
+package "core" {
+  entity "core.owners" as owners {
     * id : uuid <<PK>>
     --
     * legal_name : bytea
     * document : bytea
     * created_at : timestamptz
+  }
+
+  entity "core.idempotency_keys" as idem {
+    * scope_id : text <<PK>>
+    * key : text <<PK>>
+    --
+    * request_hash : text
+    * resource_id : uuid
+    * expires_at : timestamptz
   }
 }
 
@@ -56,9 +65,20 @@ note bottom of owners
   Todos os dados pessoais do sistema estão aqui.
   Toda coluna bytea é cifrada pela aplicação, com
   chave do operador do IdentityStore.
-  owners.id = id do lojista no processador.
-  Um schema por trilho de pagamento (pix, ethereum),
-  cada um com as tabelas e os campos do seu trilho.
+  Os ids são gerados pelo IdentityStore; o processador
+  só os registra.
+  Um schema por trilho de pagamento; um titular pode
+  ter várias chaves Pix e várias carteiras.
+end note
+
+note right of idem
+  Só para repetições seguras de criações
+  (titular, chave, carteira) após uma falha
+  de rede: guarda a chave por 24 h e depois
+  é apagada. Não contém dados pessoais.
+  scope_id = identidade do processador que
+  chamou (lida do certificado mTLS), para que
+  processadores diferentes não colidam.
 end note
 
 note right of pix_key_type

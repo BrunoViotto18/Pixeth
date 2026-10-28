@@ -6,109 +6,284 @@ title Banco do processador
 hide circle
 skinparam linetype ortho
 
-entity merchants {
-  * id : uuid <<PK>>
-  --
-  * subject_id : text <<UK>>
-  * display_name : text
-  * identity_store_id : uuid <<FK>>
-  wallet_id : uuid
-  wallet_masked : text
-  pix_key_id : uuid
-  pix_key_masked : text
-  webhook_url : text
-  webhook_secret : text
-  * created_at : timestamptz
+package "core" {
+  entity "core.merchants" as merchants {
+    * id : uuid <<PK>>
+    --
+    * subject_id : text <<UK>>
+    * display_name : text
+    * identity_store_id : uuid <<FK>>
+    * owner_id : uuid
+    * created_at : timestamptz
+  }
+
+  entity "core.payments" as payments {
+    * id : uuid <<PK>>
+    --
+    * merchant_id : uuid <<FK>>
+    * source_rail : core.rail
+    * destination_rail : core.rail
+    * amount : numeric(78,0)
+    * asset : core.asset
+    * status : core.payment_status
+    * expires_at : timestamptz
+    * version : bigint
+    * created_at : timestamptz
+  }
+
+  entity "core.idempotency_keys" as idem {
+    * scope_id : uuid <<PK>>
+    * key : text <<PK>>
+    --
+    * request_hash : text
+    * resource_id : uuid
+    * expires_at : timestamptz
+  }
+
+  entity "core.journal_entries" as entries <<só inserção>> {
+    * id : uuid <<PK>>
+    --
+    * payment_id : uuid <<FK>>
+    * kind : core.entry_kind
+    external_id : text
+    * occurred_at : timestamptz
+    .. UK (kind, external_id) ..
+  }
+
+  entity "core.postings" as postings <<só inserção>> {
+    * id : uuid <<PK>>
+    --
+    * entry_id : uuid <<FK>>
+    * account : core.ledger_account
+    * asset : core.asset
+    * amount : numeric(78,0)
+  }
+
+  entity "core.jobs" as jobs {
+    * id : uuid <<PK>>
+    --
+    * type : core.job_type
+    payment_id : uuid <<FK>>
+    * dedup_key : text <<UK>>
+    * payload : jsonb
+    * status : core.job_status
+    * attempts : int
+    * run_at : timestamptz
+    last_error : text
+  }
+
+  entity "core.identity_stores" as identity_stores {
+    * id : uuid <<PK>>
+    --
+    * base_url : text
+    * status : core.identity_store_status
+    * certificate_serial : text
+    * certificate_not_after : timestamptz
+  }
 }
 
-entity payments {
-  * id : uuid <<PK>>
-  --
-  * merchant_id : uuid <<FK>>
-  * direction : text
-  * amount_brl_minor : bigint
-  * status : text
-  * collection_reference : text <<UK>>
-  * collection_instructions : text
-  quote_eth_wei : numeric(78,0)
-  quote_expires_at : timestamptz
-  hold_release_at : timestamptz
-  med_status : text
-  * idempotency_key : text
-  * request_hash : text
-  * expires_at : timestamptz
-  * version : bigint
-  * created_at : timestamptz
-  .. UK (merchant_id, idempotency_key) ..
+package "core (tipos)" {
+  enum "core.rail" as e_rail {
+    PIX
+    ETHEREUM
+  }
+  enum "core.payment_status" as e_pstatus {
+    AWAITING_PAYMENT
+    PAID
+    CONVERTING
+    HELD
+    DELIVERING
+    COMPLETED
+    EXPIRED
+    REFUNDING
+    REFUNDED
+    REVERSED
+    FAILED
+  }
+  enum "core.ledger_account" as e_account {
+    PAYER
+    MERCHANT
+    PIX_ACCOUNT
+    CONTRACT_ESCROW
+    CONVERSION_PROVIDER
+    RECOVERY
+  }
+  enum "core.entry_kind" as e_kind {
+    PIX_IN
+    PIX_OUT
+    PIX_REFUND
+    CHAIN_PAID
+    CHAIN_HELD
+    CHAIN_RELEASED
+    CHAIN_FORWARDED
+    CHAIN_REFUNDED
+    CHAIN_RECOVERED
+    CONVERSION
+  }
+  enum "core.asset" as e_asset {
+    BRL
+    ETH
+  }
+  enum "core.job_type" as e_jtype {
+    CONFIRM_PIX
+    CONFIRM_DEPOSIT
+    CONVERT
+    PAY_OUT_PIX
+    RELEASE
+    RECOVER
+    REFUND
+    EXPIRE
+  }
+  enum "core.job_status" as e_jstatus {
+    PENDING
+    DONE
+    FAILED
+  }
+  enum "core.identity_store_status" as e_isstatus {
+    ACTIVE
+    REVOKED
+  }
 }
 
-entity transactions {
-  * id : uuid <<PK>>
-  --
-  * payment_id : uuid <<FK>>
-  * kind : text
-  * external_id : text
-  * amount_minor : numeric(78,0)
-  * asset : text
-  * occurred_at : timestamptz
-  .. UK (kind, external_id) ..
+package "pix" {
+  entity "pix.charges" as pix_charges {
+    * payment_id : uuid <<PK, FK>>
+    --
+    * txid : text <<UK>>
+    * br_code : text
+    * expires_at : timestamptz
+    med_status : pix.med_status
+  }
+
+  enum "pix.med_status" as e_med {
+    OPEN
+    RECOVERED
+    NOT_RECOVERABLE
+    CLOSED
+  }
+
+  entity "pix.payouts" as pix_payouts {
+    * payment_id : uuid <<PK, FK>>
+    --
+    * key_id : uuid
+  }
 }
 
-entity jobs {
-  * id : uuid <<PK>>
-  --
-  * type : text
-  payment_id : uuid <<FK>>
-  * dedup_key : text <<UK>>
-  * payload : jsonb
-  * status : text
-  * attempts : int
-  * run_at : timestamptz
-  last_error : text
-}
+package "ethereum" {
+  entity "ethereum.charges" as eth_charges {
+    * payment_id : uuid <<PK, FK>>
+    --
+    * onchain_id : bytea <<UK>>
+    * amount_wei : numeric(78,0)
+    * quote_expires_at : timestamptz
+  }
 
-entity identity_stores {
-  * id : uuid <<PK>>
-  --
-  * base_url : text
-  * status : text
-  enrollment_token_hash : text
-  enrollment_expires_at : timestamptz
-  certificate_serial : text
-  certificate_not_after : timestamptz
-}
+  entity "ethereum.payouts" as eth_payouts {
+    * payment_id : uuid <<PK, FK>>
+    --
+    * wallet_id : uuid
+  }
 
-entity chain_cursor {
-  * chain_id : bigint <<PK>>
-  --
-  * last_block : bigint
+  entity "ethereum.holds" as eth_holds {
+    * payment_id : uuid <<PK, FK>>
+    --
+    * release_at : timestamptz
+  }
+
+  entity "ethereum.chain_cursor" as chain_cursor {
+    * chain_id : bigint <<PK>>
+    --
+    * last_block : bigint
+  }
 }
 
 identity_stores ||--o{ merchants
 merchants ||--o{ payments
-payments ||--o{ transactions
+payments ||--o{ entries
+entries ||--|{ postings
 payments |o--o{ jobs
+payments ||--o| pix_charges
+payments ||--o| pix_payouts
+payments ||--o| eth_charges
+payments ||--o| eth_payouts
+payments ||--o| eth_holds
+payments ..> e_rail
+payments ..> e_asset
+payments ..> e_pstatus
+entries ..> e_kind
+postings ..> e_account
+postings ..> e_asset
+jobs ..> e_jtype
+jobs ..> e_jstatus
+identity_stores ..> e_isstatus
+pix_charges ..> e_med
 
-note right of jobs
-  Fila de tarefas e deduplicação ao mesmo tempo:
+note right of merchants
+  Nenhum dado pessoal: nome, CPF/CNPJ, chaves Pix
+  e carteiras ficam no IdentityStore (owner_id é o id
+  do titular lá); e-mail e senha ficam no Keycloak
+  (subject_id).
+end note
+
+note right of identity_stores
+  Atenção: ids entre serviços não são garantidos
+  pelo banco. owner_id, key_id e wallet_id (ids do
+  IdentityStore) e subject_id (usuário do Keycloak)
+  são referências lógicas, sem chave estrangeira:
+  a aplicação mantém a consistência.
+end note
+
+note right of idem
+  Genérica: serve a qualquer criação da API.
+  scope_id = quem enviou a chave (lojista, operador…),
+  para que chaves iguais de chamadores diferentes não
+  colidam; resource_id = recurso criado. request_hash
+  cobre método, caminho e corpo: a mesma chave
+  com outro pedido dá erro 422. Apagada depois
+  de expires_at (ex.: 24 h).
+end note
+
+note bottom of postings
+  Livro-razão por partidas dobradas: cada lançamento
+  (journal_entry) tem duas ou mais partidas; débito
+  positivo, crédito negativo. Um gatilho DEFERRABLE
+  confere no COMMIT que a soma das partidas é zero
+  por ativo; as duas tabelas só aceitam INSERT.
+  Neutralidade: ao fim de cada pagamento, PIX_ACCOUNT
+  e CONTRACT_ESCROW somam zero.
+end note
+
+note bottom of jobs
+  Fila de tarefas e deduplicação:
   • workers buscam com FOR UPDATE SKIP LOCKED;
   • dedup_key único descarta eventos repetidos
-    (pix:{endToEndId}, eth:{txHash}:{logIndex},
-    webhook:{paymentId}:{status}).
+    (pix:{endToEndId}, eth:{txHash}:{logIndex}).
 end note
 
 note bottom of payments
-  Idempotency-Key repetida com o mesmo request_hash
-  devolve o pagamento existente; com outro, erro 422.
-  med_status: nulo, OPEN, RECOVERED, NOT_RECOVERABLE
-  ou CLOSED.
+  Só dados comuns a todos os trilhos; o que é de
+  um trilho fica no schema dele. source_rail e
+  destination_rail aceitam qualquer combinação
+  (inclusive Pix → Pix). O valor vale para qualquer
+  ativo: amount é inteiro, na menor unidade de
+  asset (centavos para BRL, wei para ETH).
 end note
 
-note bottom of merchants
-  Dados pessoais ficam fora: nome, CPF/CNPJ, chave
-  Pix e carteira estão no IdentityStore (mesmo id
-  do lojista; wallet_id e pix_key_id apontam para
-  lá) e o e-mail de acesso no Keycloak (subject_id). webhook_secret fica
-  cifrado com chave em Kubernetes Secret.
+note bottom of pix_charges
+  pix.charges: cobrança (pagador em Pix);
+  med_status nulo = nenhum MED aberto.
+  pix.payouts: envio ao lojista; key_id é a
+  chave escolhida na criação do pagamento.
+  Os ids dos Pix recebidos e enviados (endToEndId)
+  ficam em core.journal_entries.external_id.
+end note
+
+note bottom of eth_charges
+  ethereum.charges: cobrança (pagador em ETH);
+  onchain_id é o paymentId usado em pay().
+  ethereum.payouts: entrega ao lojista; wallet_id
+  é a carteira escolhida na criação.
+  ethereum.holds: inserida quando o valor fica
+  retido no contrato, com o fim da retenção.
 end note
 @enduml

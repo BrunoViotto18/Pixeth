@@ -20,11 +20,11 @@ participant "IdentityStore" as IDS
 participant "PSP (API Pix)" as PSP
 
 == 1. Criação (síncrona e idempotente) ==
-SL -> API : POST /v1/payments {amount: "100.00 BRL",\ndirection: ETH_TO_PIX} — Bearer + Idempotency-Key
-API -> DB : lojista tem chave Pix inscrita?
+SL -> API : POST /v1/payments {amount: "100.00 BRL",\nsourceRail: ETHEREUM, destinationRail: PIX,\ndestinationId: keyId}\n— Bearer + Idempotency-Key
+API -> IDS : GET /v1/rails/pix/keys/{keyId}?view=masked — mTLS\n(existe e pertence ao owner_id do lojista?)
 API -> PC : cotação ETH → BRL
 PC --> API : 0,0058 ETH, válida por 15 min
-API -> DB : INSERT payments (AWAITING_PAYMENT, cotação)
+API -> DB : BEGIN\nINSERT payments (AWAITING_PAYMENT)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (valor em wei,\n  validade da cotação)\nINSERT pix.payouts (key_id)\nCOMMIT
 API --> SL : 201 {paymentId, checkoutUrl, amount: "0.0058 ETH"}
 
 == 2. Pagamento ==
@@ -38,31 +38,29 @@ GW --> MM : evento Paid(paymentId, payer, amount)
 
 == 3. Detecção ==
 loop a cada novo bloco (réplica com a trava do ouvinte)
-  W -> GW : eth_getLogs(Paid, desde chain_cursor)
-  W -> DB : BEGIN\nINSERT jobs (ConfirmDeposit, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE chain_cursor\nCOMMIT
+  W -> GW : eth_getLogs(Paid, desde ethereum.chain_cursor)
+  W -> DB : BEGIN\nINSERT jobs (CONFIRM_DEPOSIT, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE ethereum.chain_cursor\nCOMMIT
 end
-W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT transactions (CHAIN_PAID)\nCOMMIT
+W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nlançamento no razão (CHAIN_PAID)\nCOMMIT
 
 == 4. Validação ==
 alt valor diferente da cotação ou cotação vencida
   W -> GW : refund(paymentId) → payer
-  W -> DB : REFUNDED + transactions (CHAIN_REFUNDED)
-  W ->> SL : webhook payment.refunded
+  W -> DB : REFUNDED + lançamento no razão (CHAIN_REFUNDED)
 else valor correto
   W -> DB : CONVERTING
   W -> GW : forward(paymentId) → conversionAddress
   W -> PC : vender o ETH recebido
   PC --> W : BRL disponível na conta do Pixeth
-  W -> DB : transactions (CHAIN_FORWARDED, CONVERSION)
+  W -> DB : lançamento no razão (CHAIN_FORWARDED, CONVERSION)
 
   group 5. Pagamento ao lojista
     W -> DB : DELIVERING
-    W -> IDS : GET /v1/rails/pix/keys/{keyId} — mTLS
+    W -> IDS : GET /v1/rails/pix/keys/{key_id} — mTLS
     IDS --> W : chave Pix (só em memória)
     W -> PSP : envio de Pix (API do PSP)\nchave de idempotência = paymentId
     PSP --> W : endToEndId
-    W -> DB : COMPLETED + transactions (PIX_OUT)
-    W ->> SL : webhook payment.completed
+    W -> DB : COMPLETED + lançamento no razão (PIX_OUT, endToEndId)
   end
 end
 @enduml

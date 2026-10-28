@@ -18,18 +18,17 @@ participant "Sistema do lojista" as SL
 
 == Liberação (caminho normal) ==
 loop agendador, em qualquer réplica
-  W -> DB : SELECT … FROM payments\nWHERE status = 'HELD' AND hold_release_at <= now()\nAND med_status IS DISTINCT FROM 'OPEN'\nFOR UPDATE SKIP LOCKED
+  W -> DB : SELECT … FROM payments p\nJOIN ethereum.holds h ON h.payment_id = p.id\nJOIN pix.charges c ON c.payment_id = p.id\nWHERE p.status = 'HELD' AND h.release_at <= now()\nAND c.med_status IS DISTINCT FROM 'OPEN'\nFOR UPDATE SKIP LOCKED
   W -> GW : release(paymentId)
   GW -> GW : require(block.timestamp >= releaseAt)\nenvia ao receiver (carteira do lojista)
   GW --> W : evento Released
-  W -> DB : COMPLETED + transactions (CHAIN_RELEASED)
-  W ->> SL : webhook payment.completed
+  W -> DB : COMPLETED + lançamento no razão (CHAIN_RELEASED)
 end
 
 == MED durante a retenção ==
 P -> PSP : contesta o Pix (via seu banco)
 PSP -> API : notificação de MED (formato do PSP) — mTLS
-API -> DB : UPDATE payments SET med_status = 'OPEN'
+API -> DB : UPDATE pix.charges SET med_status = 'OPEN'\n(pagamento encontrado pelo endToEndId\nem core.journal_entries)
 note right
   Com um MED aberto, o agendador
   deixa de liberar este pagamento.
@@ -40,8 +39,7 @@ alt MED procedente e ainda antes de releaseAt
   O -> API : "Recuperar valor retido"
   W -> GW : recover(paymentId, medRef)
   GW -> GW : require(block.timestamp < releaseAt)\nenvia ao recoveryAddress
-  W -> DB : REVERSED; med_status = RECOVERED;\ntransactions (CHAIN_RECOVERED)
-  W ->> SL : webhook payment.reversed
+  W -> DB : REVERSED; med_status = RECOVERED;\nlançamento no razão (CHAIN_RECOVERED)
 else MED não procedente
   O -> API : encerrar MED
   W -> DB : med_status = CLOSED (a liberação volta a valer)

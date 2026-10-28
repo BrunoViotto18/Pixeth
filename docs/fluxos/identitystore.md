@@ -1,6 +1,6 @@
 # IdentityStore
 
-O operador emite um *token* de uso único; o IdentityStore gera a própria chave, envia um CSR e recebe um certificado da AC do processador. A partir daí, toda comunicação entre os dois usa mTLS.
+O IdentityStore gera a própria chave e o CSR; o operador envia o CSR no console e instala o certificado emitido pela AC do processador. A partir daí, toda comunicação entre os dois usa mTLS, e a renovação é feita com o próprio certificado.
 
 ![Inscrição de IdentityStore](../diagrams/svg/fluxos/seq-inscricao-identitystore.svg)
 

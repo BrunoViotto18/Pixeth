@@ -9,27 +9,22 @@ actor "Lojista" as L
 box "Pixeth" #F4F7FB
   participant "Aplicação web" as Web
   participant "API" as API
-  database "Banco" as DB
 end box
 participant "PSP (API Pix)" as PSP
 participant "IdentityStore" as IDS
 
 L -> Web : informa a chave Pix
-Web -> API : PUT /v1/merchants/{id}/rails/pix/key {key}
+Web -> API : POST /v1/merchants/{id}/rails/pix/keys {key}
 API -> PSP : consulta a chave
 PSP --> API : titular (nome, documento mascarado),\ntipo da chave
-API -> IDS : POST /v1/owners/{merchantId}/document-match\n{document mascarado, holderName} — mTLS
+API -> IDS : POST /v1/owners/{ownerId}/document-match\n{document mascarado, holderName} — mTLS
 IDS --> API : matches: true / false
 
 alt titular é o lojista
-  API -> API : gera keyId
-  API -> IDS : PUT /v1/rails/pix/keys/{keyId}\n{ownerId: merchantId, type, value} — mTLS
-  IDS --> API : 201
-  API -> DB : UPDATE merchants SET pix_key_id = ?,\npix_key_masked = ?
-  API --> Web : 200 {maskedKey}
-  opt havia uma chave anterior
-    API -> IDS : DELETE /v1/rails/pix/keys/{keyIdAnterior}
-  end
+  API -> IDS : POST /v1/rails/pix/owners/{ownerId}/keys\n{type, value} — mTLS
+  IDS --> API : 201 {id, masked}
+  API --> Web : 201 {keyId, masked}
+  note right : o lojista pode ter várias chaves
 else titular diferente
   API --> Web : 422 "a chave precisa estar no nome do lojista"
 else chave inexistente
@@ -37,8 +32,8 @@ else chave inexistente
 end
 
 note over API, IDS
-  O documento nunca volta ao processador: o IdentityStore
-  só responde se confere. O processador guarda apenas a
-  referência e a chave mascarada.
+  O processador não guarda nada sobre a chave: nem o valor,
+  nem a versão mascarada. O documento nunca volta ao
+  processador; o IdentityStore só responde se confere.
 end note
 @enduml

@@ -12,7 +12,7 @@ participant "Worker\nréplica B" as WB
 participant "Sistema externo\n(PSP, provedor, RPC)" as EXT
 
 == Gravação: estado e tarefa na mesma transação ==
-S -> DB : BEGIN\nUPDATE payments SET status = 'PAID', version = version + 1\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT INTO jobs (type = 'Convert', payment_id)\nCOMMIT
+S -> DB : BEGIN\nUPDATE payments SET status = 'PAID', version = version + 1\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT INTO jobs (type = 'CONVERT', payment_id)\nCOMMIT
 note right
   Ou as duas coisas acontecem, ou nenhuma:
   uma queda no meio não deixa o pagamento
@@ -50,6 +50,6 @@ WA -> DB : pg_try_advisory_lock(ouvinte)
 note right
   Só a réplica que obtém a trava consulta a rede;
   se ela cair, a trava é liberada e outra assume.
-  O cursor (chain_cursor) fica no banco.
+  O cursor (ethereum.chain_cursor) fica no banco.
 end note
 @enduml

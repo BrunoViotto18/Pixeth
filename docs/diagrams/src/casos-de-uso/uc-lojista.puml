@@ -19,10 +19,8 @@ rectangle "Pixeth" {
   usecase "Verificar titularidade da chave" as UC_Titular
   usecase "Remover destino de recebimento" as UC_Remover
   usecase "Gerar credencial de API" as UC_Credencial
-  usecase "Configurar webhook" as UC_Webhook
   usecase "Criar pagamento" as UC_Criar
   usecase "Consultar pagamentos" as UC_Consultar
-  usecase "Receber notificações (webhooks)" as UC_Notif
 }
 
 L --> UC_Cadastro
@@ -31,12 +29,10 @@ L --> UC_Carteira
 L --> UC_ChavePix
 L --> UC_Remover
 L --> UC_Credencial
-L --> UC_Webhook
 L --> UC_Criar
 L --> UC_Consultar
 SL --> UC_Criar
 SL --> UC_Consultar
-SL --> UC_Notif
 
 UC_Carteira ..> UC_Siwe : <<include>>
 UC_ChavePix ..> UC_Titular : <<include>>
