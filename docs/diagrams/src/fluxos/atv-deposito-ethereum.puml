@@ -21,8 +21,8 @@ if (pagamento em AWAITING_PAYMENT?) then (não)
   endif
 else (sim)
 endif
-:status → PAID\ntransação CHAIN_PAID;
-if (valor = cotação e cotação vigente?) then (não)
+:status → PAID\nlançamento PAYMENT_RECEIVED\n+ ethereum.transactions (PAID);
+if (valor = cotação e antes de expires_at?) then (não)
   :status → REFUNDING;
   :refund() ao pagador;
   stop

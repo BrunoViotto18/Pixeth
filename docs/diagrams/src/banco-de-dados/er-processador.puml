@@ -4,9 +4,22 @@
 title Banco do processador
 
 hide circle
+hide empty members
 skinparam linetype ortho
+skinparam nodesep 50
+skinparam ranksep 70
+skinparam noteTextAlignment left
 
-package "core" {
+package "Participantes" as g_part {
+  entity "core.identity_stores" as identity_stores {
+    * id : uuid <<PK>>
+    --
+    * base_url : text
+    * status : core.identity_store_status
+    * certificate_serial : text
+    * certificate_not_after : timestamptz
+  }
+
   entity "core.merchants" as merchants {
     * id : uuid <<PK>>
     --
@@ -17,6 +30,93 @@ package "core" {
     * created_at : timestamptz
   }
 
+  enum "core.identity_store_status" as e_isstatus {
+    ACTIVE
+    REVOKED
+  }
+
+  note right of merchants
+    Sem dados pessoais.
+    owner_id, key_id e wallet_id
+    (IdentityStore) e subject_id
+    (Keycloak) são referências
+    lógicas, sem chave estrangeira.
+  end note
+}
+
+package "Processamento" as g_proc {
+  entity "core.jobs" as jobs {
+    * id : uuid <<PK>>
+    --
+    * type : core.job_type
+    payment_id : uuid <<FK>>
+    * dedup_key : text <<UK>>
+    * payload : jsonb
+    * status : core.job_status
+    * attempts : int
+    * run_at : timestamptz
+    last_error : text
+  }
+
+  entity "core.idempotency_keys" as idem {
+    * scope_id : uuid <<PK>>
+    * key : text <<PK>>
+    --
+    * request_hash : text
+    * resource_id : uuid
+    * expires_at : timestamptz
+  }
+
+  entity "ethereum.chain_cursor" as chain_cursor {
+    * chain_id : bigint <<PK>>
+    --
+    * last_block : bigint
+  }
+
+  enum "core.job_type" as e_jtype {
+    CONFIRM_PIX
+    CONFIRM_DEPOSIT
+    CONVERT
+    PAY_OUT_PIX
+    RELEASE
+    RECOVER
+    REFUND
+    EXPIRE
+  }
+
+  enum "core.job_status" as e_jstatus {
+    PENDING
+    DONE
+    FAILED
+  }
+}
+
+package "MED" as g_med {
+  entity "pix.meds" as pix_meds <<imutável>> #EAF3EA {
+    * id : uuid <<PK>>
+    --
+    * payment_id : uuid <<FK>>
+    * infraction_id : text <<UK>>
+    * opened_at : timestamptz
+  }
+
+  entity "pix.med_events" as pix_med_events <<imutável>> #EAF3EA {
+    * id : uuid <<PK>>
+    --
+    * med_id : uuid <<FK>>
+    * status : pix.med_status
+    * occurred_at : timestamptz
+  }
+
+  enum "pix.med_status" as e_med {
+    OPEN
+    RECOVERED
+    NOT_RECOVERABLE
+    CLOSED
+  }
+}
+
+package "Pagamento" as g_pay {
   entity "core.payments" as payments {
     * id : uuid <<PK>>
     --
@@ -31,62 +131,6 @@ package "core" {
     * created_at : timestamptz
   }
 
-  entity "core.idempotency_keys" as idem {
-    * scope_id : uuid <<PK>>
-    * key : text <<PK>>
-    --
-    * request_hash : text
-    * resource_id : uuid
-    * expires_at : timestamptz
-  }
-
-  entity "core.journal_entries" as entries <<só inserção>> {
-    * id : uuid <<PK>>
-    --
-    * payment_id : uuid <<FK>>
-    * kind : core.entry_kind
-    external_id : text
-    * occurred_at : timestamptz
-    .. UK (kind, external_id) ..
-  }
-
-  entity "core.postings" as postings <<só inserção>> {
-    * id : uuid <<PK>>
-    --
-    * entry_id : uuid <<FK>>
-    * account : core.ledger_account
-    * asset : core.asset
-    * amount : numeric(78,0)
-  }
-
-  entity "core.jobs" as jobs {
-    * id : uuid <<PK>>
-    --
-    * type : core.job_type
-    payment_id : uuid <<FK>>
-    * dedup_key : text <<UK>>
-    * payload : jsonb
-    * status : core.job_status
-    * attempts : int
-    * run_at : timestamptz
-    last_error : text
-  }
-
-  entity "core.identity_stores" as identity_stores {
-    * id : uuid <<PK>>
-    --
-    * base_url : text
-    * status : core.identity_store_status
-    * certificate_serial : text
-    * certificate_not_after : timestamptz
-  }
-}
-
-package "core (tipos)" {
-  enum "core.rail" as e_rail {
-    PIX
-    ETHEREUM
-  }
   enum "core.payment_status" as e_pstatus {
     AWAITING_PAYMENT
     PAID
@@ -100,190 +144,160 @@ package "core (tipos)" {
     REVERSED
     FAILED
   }
-  enum "core.ledger_account" as e_account {
-    PAYER
-    MERCHANT
-    PIX_ACCOUNT
-    CONTRACT_ESCROW
-    CONVERSION_PROVIDER
-    RECOVERY
-  }
-  enum "core.entry_kind" as e_kind {
-    PIX_IN
-    PIX_OUT
-    PIX_REFUND
-    CHAIN_PAID
-    CHAIN_HELD
-    CHAIN_RELEASED
-    CHAIN_FORWARDED
-    CHAIN_REFUNDED
-    CHAIN_RECOVERED
-    CONVERSION
-  }
-  enum "core.asset" as e_asset {
-    BRL
-    ETH
-  }
-  enum "core.job_type" as e_jtype {
-    CONFIRM_PIX
-    CONFIRM_DEPOSIT
-    CONVERT
-    PAY_OUT_PIX
-    RELEASE
-    RECOVER
-    REFUND
-    EXPIRE
-  }
-  enum "core.job_status" as e_jstatus {
-    PENDING
-    DONE
-    FAILED
-  }
-  enum "core.identity_store_status" as e_isstatus {
-    ACTIVE
-    REVOKED
-  }
-}
 
-package "pix" {
-  entity "pix.charges" as pix_charges {
-    * payment_id : uuid <<PK, FK>>
-    --
-    * txid : text <<UK>>
-    * br_code : text
-    * expires_at : timestamptz
-    med_status : pix.med_status
-  }
-
-  enum "pix.med_status" as e_med {
-    OPEN
-    RECOVERED
-    NOT_RECOVERABLE
-    CLOSED
-  }
-
-  entity "pix.payouts" as pix_payouts {
+  entity "pix.payouts" as pix_payouts <<imutável>> #EAF3EA {
     * payment_id : uuid <<PK, FK>>
     --
     * key_id : uuid
   }
-}
 
-package "ethereum" {
-  entity "ethereum.charges" as eth_charges {
+  entity "ethereum.charges" as eth_charges <<imutável>> #EAF3EA {
     * payment_id : uuid <<PK, FK>>
     --
     * onchain_id : bytea <<UK>>
     * amount_wei : numeric(78,0)
-    * quote_expires_at : timestamptz
   }
 
-  entity "ethereum.payouts" as eth_payouts {
+  entity "pix.charges" as pix_charges <<imutável>> #EAF3EA {
+    * payment_id : uuid <<PK, FK>>
+    --
+    * txid : text <<UK>>
+    * br_code : text
+  }
+
+  entity "ethereum.payouts" as eth_payouts <<imutável>> #EAF3EA {
     * payment_id : uuid <<PK, FK>>
     --
     * wallet_id : uuid
   }
 
-  entity "ethereum.holds" as eth_holds {
+  entity "ethereum.holds" as eth_holds <<imutável>> #EAF3EA {
     * payment_id : uuid <<PK, FK>>
     --
     * release_at : timestamptz
   }
+}
 
-  entity "ethereum.chain_cursor" as chain_cursor {
-    * chain_id : bigint <<PK>>
+package "Livro-razão" as g_ledger {
+  entity "core.journal_entries" as entries <<imutável>> #EAF3EA {
+    * id : uuid <<PK>>
     --
-    * last_block : bigint
+    * payment_id : uuid <<FK>>
+    * kind : core.entry_kind
+    * occurred_at : timestamptz
+  }
+
+  entity "core.postings" as postings <<imutável>> #EAF3EA {
+    * id : uuid <<PK>>
+    --
+    * entry_id : uuid <<FK>>
+    * account : core.ledger_account
+    * asset : core.asset
+    * amount : numeric(78,0)
+  }
+
+  enum "core.entry_kind" as e_kind {
+    PAYMENT_RECEIVED
+    CONVERSION
+    HOLD
+    RELEASE
+    PAYOUT
+    REFUND
+    REVERSAL
+  }
+
+  enum "core.ledger_account" as e_account {
+    PAYER
+    MERCHANT
+    GATEWAY
+    ESCROW
+    CONVERSION_PROVIDER
+    RECOVERY
+  }
+
+  note bottom of postings
+    Em cada lançamento, as partidas
+    somam zero por ativo
+    (conferido no COMMIT).
+  end note
+
+  entity "ethereum.transactions" as eth_transactions <<imutável>> #EAF3EA {
+    * id : uuid <<PK>>
+    --
+    * entry_id : uuid <<FK>>
+    * kind : ethereum.transaction_kind
+    * tx_hash : bytea
+    * log_index : int
+    * occurred_at : timestamptz
+    .. UK (tx_hash, log_index) ..
+  }
+
+  entity "pix.transfers" as pix_transfers <<imutável>> #EAF3EA {
+    * id : uuid <<PK>>
+    --
+    * entry_id : uuid <<FK>>
+    * kind : pix.transfer_kind
+    * end_to_end_id : text <<UK>>
+    * occurred_at : timestamptz
+  }
+
+  enum "pix.transfer_kind" as e_pix_transfer {
+    RECEIVED
+    SENT
+    REFUNDED
+  }
+
+  enum "ethereum.transaction_kind" as e_eth_tx {
+    PAID
+    HELD
+    RELEASED
+    FORWARDED
+    REFUNDED
+    RECOVERED
   }
 }
 
-identity_stores ||--o{ merchants
-merchants ||--o{ payments
-payments ||--o{ entries
-entries ||--|{ postings
-payments |o--o{ jobs
-payments ||--o| pix_charges
-payments ||--o| pix_payouts
-payments ||--o| eth_charges
-payments ||--o| eth_payouts
-payments ||--o| eth_holds
-payments ..> e_rail
-payments ..> e_asset
-payments ..> e_pstatus
-entries ..> e_kind
-postings ..> e_account
-postings ..> e_asset
-jobs ..> e_jtype
-jobs ..> e_jstatus
-identity_stores ..> e_isstatus
-pix_charges ..> e_med
+package "Tipos comuns" as g_types {
+  enum "core.rail" as e_rail {
+    PIX
+    ETHEREUM
+  }
 
-note right of merchants
-  Nenhum dado pessoal: nome, CPF/CNPJ, chaves Pix
-  e carteiras ficam no IdentityStore (owner_id é o id
-  do titular lá); e-mail e senha ficam no Keycloak
-  (subject_id).
-end note
+  enum "core.asset" as e_asset {
+    BRL
+    ETH
+  }
+}
 
-note right of identity_stores
-  Atenção: ids entre serviços não são garantidos
-  pelo banco. owner_id, key_id e wallet_id (ids do
-  IdentityStore) e subject_id (usuário do Keycloak)
-  são referências lógicas, sem chave estrangeira:
-  a aplicação mantém a consistência.
-end note
+' Chaves estrangeiras
+identity_stores ||-down-o{ merchants
+merchants ||-down-o{ payments
+payments |o-left-o{ jobs
+payments ||-right-o{ pix_meds
+payments ||-down-o| eth_holds
+payments ||-down-o| eth_payouts
+payments ||-down-o| eth_charges
+payments ||-down-o| pix_payouts
+payments ||-down-o| pix_charges
+payments ||-down-o{ entries
+entries ||-left-|{ postings
+entries ||-down-o| eth_transactions
+entries ||-down-o| pix_transfers
+pix_meds ||-down-|{ pix_med_events
 
-note right of idem
-  Genérica: serve a qualquer criação da API.
-  scope_id = quem enviou a chave (lojista, operador…),
-  para que chaves iguais de chamadores diferentes não
-  colidam; resource_id = recurso criado. request_hash
-  cobre método, caminho e corpo: a mesma chave
-  com outro pedido dá erro 422. Apagada depois
-  de expires_at (ex.: 24 h).
-end note
+' Posicionamento (sem significado no modelo)
+identity_stores -[hidden]right- e_isstatus
+jobs -[hidden]right- idem
+idem -[hidden]down- chain_cursor
+jobs -[hidden]down- e_jtype
+e_jtype -[hidden]right- e_jstatus
+pix_charges -[hidden]down- e_pstatus
+postings -[hidden]down- e_account
+entries -[hidden]down- e_kind
+pix_transfers -[hidden]down- e_pix_transfer
+eth_transactions -[hidden]down- e_eth_tx
+pix_med_events -[hidden]down- e_med
+e_rail -[hidden]right- e_asset
+eth_holds -[hidden]down- pix_meds
 
-note bottom of postings
-  Livro-razão por partidas dobradas: cada lançamento
-  (journal_entry) tem duas ou mais partidas; débito
-  positivo, crédito negativo. Um gatilho DEFERRABLE
-  confere no COMMIT que a soma das partidas é zero
-  por ativo; as duas tabelas só aceitam INSERT.
-  Neutralidade: ao fim de cada pagamento, PIX_ACCOUNT
-  e CONTRACT_ESCROW somam zero.
-end note
-
-note bottom of jobs
-  Fila de tarefas e deduplicação:
-  • workers buscam com FOR UPDATE SKIP LOCKED;
-  • dedup_key único descarta eventos repetidos
-    (pix:{endToEndId}, eth:{txHash}:{logIndex}).
-end note
-
-note bottom of payments
-  Só dados comuns a todos os trilhos; o que é de
-  um trilho fica no schema dele. source_rail e
-  destination_rail aceitam qualquer combinação
-  (inclusive Pix → Pix). O valor vale para qualquer
-  ativo: amount é inteiro, na menor unidade de
-  asset (centavos para BRL, wei para ETH).
-end note
-
-note bottom of pix_charges
-  pix.charges: cobrança (pagador em Pix);
-  med_status nulo = nenhum MED aberto.
-  pix.payouts: envio ao lojista; key_id é a
-  chave escolhida na criação do pagamento.
-  Os ids dos Pix recebidos e enviados (endToEndId)
-  ficam em core.journal_entries.external_id.
-end note
-
-note bottom of eth_charges
-  ethereum.charges: cobrança (pagador em ETH);
-  onchain_id é o paymentId usado em pay().
-  ethereum.payouts: entrega ao lojista; wallet_id
-  é a carteira escolhida na criação.
-  ethereum.holds: inserida quando o valor fica
-  retido no contrato, com o fim da retenção.
-end note
 @enduml

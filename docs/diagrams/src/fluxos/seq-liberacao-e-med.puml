@@ -18,17 +18,17 @@ participant "Sistema do lojista" as SL
 
 == Liberação (caminho normal) ==
 loop agendador, em qualquer réplica
-  W -> DB : SELECT … FROM payments p\nJOIN ethereum.holds h ON h.payment_id = p.id\nJOIN pix.charges c ON c.payment_id = p.id\nWHERE p.status = 'HELD' AND h.release_at <= now()\nAND c.med_status IS DISTINCT FROM 'OPEN'\nFOR UPDATE SKIP LOCKED
+  W -> DB : SELECT … FROM payments p\nJOIN ethereum.holds h ON h.payment_id = p.id\nWHERE p.status = 'HELD' AND h.release_at <= now()\nAND não há MED aberto para o pagamento\nFOR UPDATE SKIP LOCKED
   W -> GW : release(paymentId)
   GW -> GW : require(block.timestamp >= releaseAt)\nenvia ao receiver (carteira do lojista)
   GW --> W : evento Released
-  W -> DB : COMPLETED + lançamento no razão (CHAIN_RELEASED)
+  W -> DB : COMPLETED + lançamento RELEASE\n+ ethereum.transactions (RELEASED, txHash)
 end
 
 == MED durante a retenção ==
 P -> PSP : contesta o Pix (via seu banco)
 PSP -> API : notificação de MED (formato do PSP) — mTLS
-API -> DB : UPDATE pix.charges SET med_status = 'OPEN'\n(pagamento encontrado pelo endToEndId\nem core.journal_entries)
+API -> DB : INSERT pix.meds + pix.med_events (OPEN)\n(pagamento encontrado pelo endToEndId:\npix.transfers → lançamento → pagamento)
 note right
   Com um MED aberto, o agendador
   deixa de liberar este pagamento.
@@ -39,12 +39,12 @@ alt MED procedente e ainda antes de releaseAt
   O -> API : "Recuperar valor retido"
   W -> GW : recover(paymentId, medRef)
   GW -> GW : require(block.timestamp < releaseAt)\nenvia ao recoveryAddress
-  W -> DB : REVERSED; med_status = RECOVERED;\nlançamento no razão (CHAIN_RECOVERED)
+  W -> DB : REVERSED; pix.med_events (RECOVERED);\nlançamento REVERSAL\n+ ethereum.transactions (RECOVERED, txHash)
 else MED não procedente
   O -> API : encerrar MED
-  W -> DB : med_status = CLOSED (a liberação volta a valer)
+  W -> DB : pix.med_events (CLOSED)\n(a liberação volta a valer)
 else valor já liberado
-  W -> DB : med_status = NOT_RECOVERABLE
+  W -> DB : pix.med_events (NOT_RECOVERABLE)
   note right
     Fora do escopo do TCC: cobrança do lojista,
     reserva e contestação ficam como trabalho futuro.

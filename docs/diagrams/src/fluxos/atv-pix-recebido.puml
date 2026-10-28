@@ -16,7 +16,7 @@ if (pagamento em AWAITING_PAYMENT?) then (não)
   stop
 else (sim)
 endif
-:status → PAID\ntransação PIX_IN;
+:status → PAID\nlançamento PAYMENT_RECEIVED\n+ pix.transfers (RECEIVED);
 if (valor pago = valor da cobrança?) then (não)
   :status → REFUNDING;
   :devolução Pix total;

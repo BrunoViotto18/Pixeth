@@ -505,7 +505,7 @@ paths:
       tags: [PSP]
       operationId: receiveInfractionWebhook
       summary: Notificação de MED (formato próprio de cada PSP)
-      description: Marca o pagamento com `medStatus = OPEN` e suspende a liberação.
+      description: Insere um registro em `pix.meds` e um evento `OPEN` em `pix.med_events`, suspendendo a liberação.
       security:
         - mtls: []
       requestBody:
@@ -755,18 +755,19 @@ components:
             contractAddress: { $ref: '#/components/schemas/EthereumAddress' }
             paymentIdBytes32: { type: string, pattern: '^0x[0-9a-fA-F]{64}$' }
             amountToPay: { $ref: '#/components/schemas/Money' }
-            quoteExpiresAt: { type: string, format: date-time }
         holdReleaseAt:
           type: [string, 'null']
           format: date-time
           description: Quando destinationRail = ETHEREUM, quando o valor retido será liberado ao lojista.
         medStatus:
+          description: Situação do MED, derivada do evento mais recente; null quando não há MED.
           oneOf:
             - $ref: '#/components/schemas/MedStatus'
             - type: 'null'
-        transactions:
+        entries:
           type: array
-          items: { $ref: '#/components/schemas/Transaction' }
+          description: Lançamentos do livro-razão do pagamento, em ordem cronológica.
+          items: { $ref: '#/components/schemas/LedgerEntry' }
         expiresAt: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
 
@@ -779,14 +780,17 @@ components:
           items: { $ref: '#/components/schemas/Payment' }
         nextCursor: { type: [string, 'null'] }
 
-    Transaction:
+    LedgerEntry:
       type: object
-      required: [kind, externalId, amount, occurredAt]
+      required: [kind, amount, occurredAt]
       properties:
         kind:
           type: string
-          enum: [PIX_IN, PIX_OUT, PIX_REFUND, CHAIN_PAID, CHAIN_HELD, CHAIN_RELEASED, CHAIN_FORWARDED, CHAIN_REFUNDED, CHAIN_RECOVERED, CONVERSION]
-        externalId: { type: string, description: endToEndId ou txHash }
+          enum: [PAYMENT_RECEIVED, CONVERSION, HOLD, RELEASE, PAYOUT, REFUND, REVERSAL]
+        rail: { $ref: '#/components/schemas/Rail' }
+        externalId:
+          type: [string, 'null']
+          description: 'endToEndId (pix.transfers) ou txHash (ethereum.transactions); null em CONVERSION'
         amount: { $ref: '#/components/schemas/Money' }
         occurredAt: { type: string, format: date-time }
 

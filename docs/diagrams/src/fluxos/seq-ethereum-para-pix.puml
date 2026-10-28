@@ -24,7 +24,7 @@ SL -> API : POST /v1/payments {amount: "100.00 BRL",\nsourceRail: ETHEREUM, dest
 API -> IDS : GET /v1/rails/pix/keys/{keyId}?view=masked — mTLS\n(existe e pertence ao owner_id do lojista?)
 API -> PC : cotação ETH → BRL
 PC --> API : 0,0058 ETH, válida por 15 min
-API -> DB : BEGIN\nINSERT payments (AWAITING_PAYMENT)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (valor em wei,\n  validade da cotação)\nINSERT pix.payouts (key_id)\nCOMMIT
+API -> DB : BEGIN\nINSERT payments (AWAITING_PAYMENT,\n  expires_at = validade da cotação)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (valor em wei)\nINSERT pix.payouts (key_id)\nCOMMIT
 API --> SL : 201 {paymentId, checkoutUrl, amount: "0.0058 ETH"}
 
 == 2. Pagamento ==
@@ -41,18 +41,18 @@ loop a cada novo bloco (réplica com a trava do ouvinte)
   W -> GW : eth_getLogs(Paid, desde ethereum.chain_cursor)
   W -> DB : BEGIN\nINSERT jobs (CONFIRM_DEPOSIT, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE ethereum.chain_cursor\nCOMMIT
 end
-W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nlançamento no razão (CHAIN_PAID)\nCOMMIT
+W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nlançamento PAYMENT_RECEIVED\nINSERT ethereum.transactions (PAID, txHash)\nCOMMIT
 
 == 4. Validação ==
-alt valor diferente da cotação ou cotação vencida
+alt valor diferente da cotação ou pagamento expirado
   W -> GW : refund(paymentId) → payer
-  W -> DB : REFUNDED + lançamento no razão (CHAIN_REFUNDED)
+  W -> DB : REFUNDED + lançamento REFUND\n+ ethereum.transactions (REFUNDED, txHash)
 else valor correto
   W -> DB : CONVERTING
   W -> GW : forward(paymentId) → conversionAddress
   W -> PC : vender o ETH recebido
   PC --> W : BRL disponível na conta do Pixeth
-  W -> DB : lançamento no razão (CHAIN_FORWARDED, CONVERSION)
+  W -> DB : lançamento CONVERSION\n+ ethereum.transactions (FORWARDED, txHash)
 
   group 5. Pagamento ao lojista
     W -> DB : DELIVERING
@@ -60,7 +60,7 @@ else valor correto
     IDS --> W : chave Pix (só em memória)
     W -> PSP : envio de Pix (API do PSP)\nchave de idempotência = paymentId
     PSP --> W : endToEndId
-    W -> DB : COMPLETED + lançamento no razão (PIX_OUT, endToEndId)
+    W -> DB : COMPLETED + lançamento PAYOUT\n+ pix.transfers (SENT, endToEndId)
   end
 end
 @enduml

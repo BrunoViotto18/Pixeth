@@ -32,31 +32,51 @@ class Payment {
 }
 
 package "pix" {
-  class PixCharge {
+  class PixCharge <<imutável>> {
     txid: String
     brCode: String
-    expiresAt: Instant
-    medStatus: MedStatus
   }
 
-  class PixPayout {
+  class PixTransfer <<imutável>> {
+    kind: PixTransferKind
+    endToEndId: String
+    occurredAt: Instant
+  }
+
+  class Med <<imutável>> {
+    infractionId: String
+    openedAt: Instant
+  }
+
+  class MedEvent <<imutável>> {
+    status: MedStatus
+    occurredAt: Instant
+  }
+
+  class PixPayout <<imutável>> {
     keyId: UUID
   }
 }
 
 package "ethereum" {
-  class EthereumCharge {
+  class EthereumCharge <<imutável>> {
     onchainId: Bytes32
     amount: Money
-    quoteExpiresAt: Instant
   }
 
-  class EthereumPayout {
+  class EthereumPayout <<imutável>> {
     walletId: UUID
   }
 
-  class EthereumHold {
+  class EthereumHold <<imutável>> {
     releaseAt: Instant
+  }
+
+  class EthereumTransaction <<imutável>> {
+    kind: EthereumTransactionKind
+    txHash: Bytes32
+    logIndex: int
+    occurredAt: Instant
   }
 }
 
@@ -88,7 +108,6 @@ enum MedStatus {
 
 class JournalEntry <<imutável>> {
   kind: EntryKind
-  externalId: String
   occurredAt: Instant
 }
 
@@ -100,23 +119,20 @@ class Posting <<imutável>> {
 enum LedgerAccount {
   PAYER
   MERCHANT
-  PIX_ACCOUNT
-  CONTRACT_ESCROW
+  GATEWAY
+  ESCROW
   CONVERSION_PROVIDER
   RECOVERY
 }
 
 enum EntryKind {
-  PIX_IN
-  PIX_OUT
-  PIX_REFUND
-  CHAIN_PAID
-  CHAIN_HELD
-  CHAIN_RELEASED
-  CHAIN_FORWARDED
-  CHAIN_REFUNDED
-  CHAIN_RECOVERED
+  PAYMENT_RECEIVED
   CONVERSION
+  HOLD
+  RELEASE
+  PAYOUT
+  REFUND
+  REVERSAL
 }
 
 class Job {
@@ -139,7 +155,11 @@ Merchant --> "1" IdentityStoreNode : dados pessoais em
 Merchant "1" -- "0..*" Payment
 Payment --> Rail
 Payment --> PaymentStatus
-PixCharge --> MedStatus
+JournalEntry *-- "0..1" PixTransfer : prova no Pix
+Payment *-- "0..*" Med
+Med *-- "1..*" MedEvent
+MedEvent --> MedStatus
+JournalEntry *-- "0..1" EthereumTransaction : prova na rede
 Payment *-- "0..1" PixCharge : pagador em Pix
 Payment *-- "0..1" EthereumCharge : pagador em Ethereum
 Payment *-- "0..1" EthereumPayout : lojista recebe em Ethereum
@@ -154,7 +174,8 @@ JournalEntry --> EntryKind
 note right of JournalEntry
   Livro-razão por partidas dobradas: cada movimento
   de dinheiro é um lançamento com partidas que somam
-  zero por ativo; external_id guarda o endToEndId ou
-  o txHash do movimento.
+  zero por ativo. Tipos e contas não dependem do
+  trilho; o registro do trilho (PixTransfer,
+  EthereumTransaction) guarda o identificador externo.
 end note
 @enduml

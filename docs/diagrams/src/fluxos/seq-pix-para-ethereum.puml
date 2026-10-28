@@ -23,13 +23,13 @@ participant "PixethGateway\n(Sepolia)" as GW
 SL -> API : POST /v1/payments {amount: "100.00 BRL",\nsourceRail: PIX, destinationRail: ETHEREUM,\ndestinationId: walletId}\n— Bearer + Idempotency-Key
 API -> DB : core.idempotency_keys tem esta chave?\n→ devolve o pagamento existente (ou 422 se o corpo mudou)
 API -> IDS : GET /v1/rails/ethereum/wallets/{walletId}?view=masked — mTLS\n(existe e pertence ao owner_id do lojista?)
-API -> PSP : PUT /cob/{txid} {expiracao: 900, valor: "100.00"}
+API -> PSP : PUT /cob/{txid} {expiracao: 900 (= expires_at), valor: "100.00"}
 note right
   txid derivado do paymentId:
   repetir o PUT é seguro.
 end note
 PSP --> API : pixCopiaECola
-API -> DB : BEGIN\nINSERT payments (AWAITING_PAYMENT)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola, expires_at)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
+API -> DB : BEGIN\nINSERT payments (AWAITING_PAYMENT, expires_at = agora + 15 min)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
 API --> SL : 201 {paymentId, checkoutUrl, pixCopiaECola}
 
 == 2. Pagamento ==
@@ -45,7 +45,7 @@ API --> PSP : 200
 W -> PSP : GET /pix/{endToEndId}
 note right : o corpo do webhook não é usado como prova
 PSP --> W : valor, txid, horário
-W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nlançamento no razão (PIX_IN)\nINSERT jobs (CONVERT)\nCOMMIT
+W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nlançamento PAYMENT_RECEIVED\nINSERT pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (CONVERT)\nCOMMIT
 
 == 4. Conversão e retenção ==
 W -> DB : CONVERTING
@@ -56,11 +56,11 @@ PC -> GW : hold(paymentId, carteira do lojista,\nreleaseAt = agora + janela) {va
 GW --> PC : evento Held
 PC --> W : txHash
 W -> GW : recibo + confirmações
-W -> DB : BEGIN\nHELD; INSERT ethereum.holds (release_at)\nlançamento no razão (CONVERSION, CHAIN_HELD)\nCOMMIT
+W -> DB : BEGIN\nHELD; INSERT ethereum.holds (release_at)\nlançamentos CONVERSION e HOLD\nINSERT ethereum.transactions (HELD, txHash)\nCOMMIT
 
 alt conversão falhou
   W -> PSP : PUT /pix/{endToEndId}/devolucao/{id}
-  W -> DB : REFUNDED + lançamento no razão (PIX_REFUND)
+  W -> DB : REFUNDED + lançamento REFUND\n+ pix.transfers (REFUNDED, endToEndId)
 end
 
 note over W, GW
