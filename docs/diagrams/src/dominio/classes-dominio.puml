@@ -26,15 +26,16 @@ package "Participantes" {
 package "Processamento" {
   class Job {
     type: JobType
-    dedupKey: String
     status: JobStatus
     attempts: int
     runAt: Instant
+    createdAt: Instant
+    updatedAt: Instant
   }
 
   enum JobType {
     CONFIRM_PAYMENT
-    FORWARD
+    FUND_CONVERSION
     CONVERT
     PAY_OUT
     RELEASE
@@ -139,8 +140,8 @@ package "Livro-razão" {
 
   enum PixTransferKind {
     RECEIVED
-    SENT
-    FORWARDED
+    PAID_OUT
+    CONVERSION_FUNDED
     RETURNED
     MED_RETURNED
   }
@@ -149,7 +150,7 @@ package "Livro-razão" {
     PAID
     HELD
     RELEASED
-    FORWARDED
+    CONVERSION_FUNDED
     REFUNDED
     RECOVERED
   }
@@ -195,7 +196,7 @@ package "Tipos comuns" {
 ' Associações
 IdentityStoreNode "1" -down- "0..*" Merchant : dados pessoais em
 Merchant "1" -down- "0..*" Payment
-Job "0..*" -down- "0..1" Payment
+Job "0..*" -down- "1" Payment
 Payment *-down- "0..1" PixCharge
 Payment *-down- "0..1" PixPayout
 Payment *-down- "0..1" EthereumCharge

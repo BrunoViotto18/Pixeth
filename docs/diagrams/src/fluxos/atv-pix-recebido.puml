@@ -5,12 +5,12 @@ title Processamento de um Pix recebido (Pix → Ethereum)
 
 start
 :webhook do PSP recebido;
-if (já existe tarefa com dedup_key pix:{endToEndId}?) then (sim)
+if (o pagamento do txid já tem\ntarefa CONFIRM_PAYMENT?) then (sim)
   :responder 200 e ignorar;
   stop
 else (não)
 endif
-:GET /pix/{endToEndId} no PSP;
+:GET /cob/{txid} no PSP\n(o Pix pago e seu endToEndId);
 if (pagamento em AWAITING_PAYMENT?) then (não)
   :registrar e ignorar\n(fora de ordem ou repetido);
   stop
@@ -22,7 +22,7 @@ if (valor pago = valor da cobrança\ne provedor aceitou o pedido?) then (não)
   stop
 else (sim)
 endif
-:paga a cobrança do provedor\nlançamento + pix.transfers (FORWARDED);
+:paga a cobrança do provedor\nlançamento + pix.transfers (CONVERSION_FUNDED);
 :provedor entrega o ETH com hold()\nlançamento + core.conversions\nlançamento + ethereum.transactions (HELD);
 :agenda a tarefa RELEASE\npara release_at;
 stop

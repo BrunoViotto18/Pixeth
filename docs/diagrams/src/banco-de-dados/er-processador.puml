@@ -48,13 +48,14 @@ package "Processamento" as g_proc {
     * id : uuid <<PK>>
     --
     * type : core.job_type
-    payment_id : uuid <<FK>>
-    * dedup_key : text <<UK>>
-    * payload : jsonb
+    * payment_id : uuid <<FK>>
     * status : core.job_status
     * attempts : int
     * run_at : timestamptz
     last_error : text
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    .. UK (payment_id, type) ..
   }
 
   entity "core.idempotency_keys" as idem {
@@ -74,7 +75,7 @@ package "Processamento" as g_proc {
 
   enum "core.job_type" as e_jtype {
     CONFIRM_PAYMENT
-    FORWARD
+    FUND_CONVERSION
     CONVERT
     PAY_OUT
     RELEASE
@@ -220,8 +221,8 @@ package "Livro-razão" as g_ledger {
 
   enum "pix.transfer_kind" as e_pix_transfer {
     RECEIVED
-    SENT
-    FORWARDED
+    PAID_OUT
+    CONVERSION_FUNDED
     RETURNED
     MED_RETURNED
   }
@@ -243,7 +244,7 @@ package "Livro-razão" as g_ledger {
     PAID
     HELD
     RELEASED
-    FORWARDED
+    CONVERSION_FUNDED
     REFUNDED
     RECOVERED
   }
@@ -264,7 +265,7 @@ package "Tipos comuns" as g_types {
 ' Chaves estrangeiras
 identity_stores ||-down-o{ merchants
 merchants ||-down-o{ payments
-payments |o-left-o{ jobs
+payments ||-left-o{ jobs
 payments ||-right-o{ pix_meds
 payments ||-down-o| eth_holds
 payments ||-down-o| eth_payouts

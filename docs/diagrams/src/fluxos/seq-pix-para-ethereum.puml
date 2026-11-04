@@ -40,19 +40,19 @@ BP -> PSP : liquida pelo SPI
 
 == 3. Confirmação ==
 PSP -> API : webhook {endToEndId, txid} — mTLS
-API -> DB : INSERT jobs (CONFIRM_PAYMENT,\ndedup_key = pix:{endToEndId})\nON CONFLICT DO NOTHING
+API -> DB : INSERT jobs (CONFIRM_PAYMENT,\npagamento do txid em pix.charges)\nON CONFLICT (payment_id, type) DO NOTHING
 API --> PSP : 200
-W -> PSP : GET /pix/{endToEndId}
+W -> PSP : GET /cob/{txid}
 note right : o corpo do webhook não é usado como prova
-PSP --> W : valor, txid, horário
-W -> DB : BEGIN\nlançamento + pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (FORWARD)\nCOMMIT
+PSP --> W : Pix pago: endToEndId, valor, horário
+W -> DB : BEGIN\nlançamento + pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (FUND_CONVERSION)\nCOMMIT
 
 == 4. Conversão e retenção ==
 W -> PC : criar pedido: R$ 100,00 → ETH\n(referência = paymentId)
 PC --> W : id do pedido + cobrança Pix do provedor
 W -> PSP : paga a cobrança do provedor\n(chave de idempotência = paymentId)
 PSP --> W : endToEndId do envio
-W -> DB : lançamento + pix.transfers (FORWARDED, endToEndId)
+W -> DB : lançamento + pix.transfers (CONVERSION_FUNDED, endToEndId)
 note right
   Os dois Pix do pagamento (recebido e
   encaminhado) ficam ligados pelo paymentId,

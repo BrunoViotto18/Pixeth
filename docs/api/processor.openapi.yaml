@@ -472,8 +472,8 @@ paths:
       summary: Webhook de Pix recebidos (formato da API Pix do BCB)
       description: |
         URL registrada no PSP: `/v1/rails/pix/psps/{pspId}`; pela especificação do BCB, o PSP
-        acrescenta `/pix` ao enviar. Cada Pix vira uma tarefa com `dedup_key = pix:{endToEndId}` (repetições são descartadas)
-        e é reconsultado com `GET /pix/{e2eid}` antes de qualquer efeito. Responde 200 também
+        acrescenta `/pix` ao enviar. O `txid` leva ao pagamento, que ganha uma tarefa `CONFIRM_PAYMENT` (repetições são descartadas pela
+        chave única de pagamento e tipo); o Pix é reconsultado com `GET /cob/{txid}` antes de qualquer efeito. Responde 200 também
         para duplicados.
       security:
         - mtls: []

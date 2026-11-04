@@ -42,9 +42,9 @@ O estado do pagamento não é gravado: a visão `core.payment_current_status` o 
 |---|---|
 | `core.journal_entries` | Um lançamento por fato externo; `source` indica qual extensão o comprova |
 | `core.postings` | Partidas de cada lançamento (conta, ativo, valor; positivo entra, negativo sai). Um gatilho `DEFERRABLE` confere no `COMMIT` que somam zero por ativo e que o lançamento tem exatamente uma extensão, a indicada por `source`. Neutralidade: ao fim de cada pagamento, `GATEWAY` e `ESCROW` somam zero |
-| `pix.transfers` | Extensão do lançamento: o Pix recebido, enviado ao lojista, encaminhado ao provedor de conversão, devolvido ou devolvido por MED (`RECEIVED`, `SENT`, `FORWARDED`, `RETURNED`, `MED_RETURNED`), com o `endToEndId` (numa devolução, o id da devolução) |
+| `pix.transfers` | Extensão do lançamento: o Pix recebido, enviado ao lojista, encaminhado ao provedor de conversão, devolvido ou devolvido por MED (`RECEIVED`, `PAID_OUT`, `CONVERSION_FUNDED`, `RETURNED`, `MED_RETURNED`), com o `endToEndId` (numa devolução, o id da devolução) |
 | `ethereum.transactions` | Extensão do lançamento: o evento do contrato que o comprova (pagamento, retenção, liberação, encaminhamento, reembolso, recuperação), com `txHash` e `logIndex` |
-| `core.conversions` | Extensão do lançamento: a entrega do provedor de conversão, isto é, o ativo convertido que ele devolve (`provider` e `provider_order_id`, o id que o provedor devolve). O valor enviado ao provedor é um lançamento à parte (`FORWARDED`, no trilho de origem). Uma tabela só para todos os provedores, porque a prova tem a mesma forma em todos |
+| `core.conversions` | Extensão do lançamento: a entrega do provedor de conversão, isto é, o ativo convertido que ele devolve (`provider` e `provider_order_id`, o id que o provedor devolve). O valor enviado ao provedor é um lançamento à parte (`CONVERSION_FUNDED`, no trilho de origem). Uma tabela só para todos os provedores, porque a prova tem a mesma forma em todos |
 
 **MED** — casos de devolução abertos pelo banco do pagador.
 
@@ -57,7 +57,7 @@ O estado do pagamento não é gravado: a visão `core.payment_current_status` o 
 
 | Tabela | Papel |
 |---|---|
-| `core.jobs` | Fila de tarefas: as réplicas buscam com `FOR UPDATE SKIP LOCKED`; `dedup_key` único descarta eventos repetidos (`pix:{endToEndId}`, `eth:{txHash}:{logIndex}`) |
+| `core.jobs` | Fila de tarefas, uma linha por passo de um pagamento (`UNIQUE (payment_id, type)`, que também descarta *webhooks* e eventos repetidos). As réplicas buscam com `FOR UPDATE SKIP LOCKED`; uma falha atualiza a própria linha (`attempts`, `run_at` adiado, `last_error`) até virar `FAILED` |
 | `core.idempotency_keys` | Idempotência de qualquer criação da API: `scope_id` é quem enviou a chave, `resource_id` o recurso criado e `request_hash` cobre método, caminho e corpo (a mesma chave com outro pedido dá 422). Apagada depois de `expires_at` (ex.: 24 h) |
 | `ethereum.chain_cursor` | Último bloco lido da *blockchain* |
 

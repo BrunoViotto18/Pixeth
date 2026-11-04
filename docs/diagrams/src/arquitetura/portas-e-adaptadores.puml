@@ -16,7 +16,7 @@ interface PaymentRail {
   +capabilities(): RailCapabilities
   +createCharge(payment: Payment): Charge
   +confirmPayment(payment: Payment, externalId: String): RailResult
-  +forward(payment: Payment, instruction: PaymentInstruction): RailResult
+  +fundConversion(payment: Payment, instruction: PaymentInstruction): RailResult
   +payOut(payment: Payment, destinationId: UUID): RailResult
   +refund(payment: Payment): RailResult
 }
@@ -50,7 +50,7 @@ class PixethGatewayContract <<Web3j>> {
   +hold(paymentId, receiver, releaseAt, value)
   +release(paymentId)
   +recover(paymentId, medRef)
-  +forward(paymentId)
+  +fundConversion(paymentId)
   +refund(paymentId)
 }
 
@@ -86,12 +86,12 @@ interface IdentityStore {
 class MtlsIdentityStoreClient
 
 interface JobQueue {
-  +enqueue(type: JobType, paymentId: UUID, dedupKey: String, runAt: Instant)
+  +enqueue(type: JobType, paymentId: UUID, runAt: Instant)
 }
 
 enum JobType {
   CONFIRM_PAYMENT
-  FORWARD
+  FUND_CONVERSION
   CONVERT
   PAY_OUT
   RELEASE

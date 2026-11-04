@@ -5,7 +5,7 @@ title Processamento de um pagamento em ETH (Ethereum → Pix)
 
 start
 :evento Paid lido da blockchain;
-if (já existe tarefa com dedup_key eth:{txHash}:{logIndex}?) then (sim)
+if (o pagamento do evento já tem\ntarefa CONFIRM_PAYMENT?) then (sim)
   :ignorar;
   stop
 else (não)
@@ -28,12 +28,12 @@ if (valor = cotação e antes de expires_at?) then (não)
   stop
 else (sim)
 endif
-:forward() ao provedor\nlançamento + ethereum.transactions (FORWARDED);
+:fundConversion() ao provedor\nlançamento + ethereum.transactions (CONVERSION_FUNDED);
 :provedor entrega o BRL\nlançamento + core.conversions;
 :buscar chave Pix no IdentityStore;
 :envio de Pix ao lojista;
 if (Pix liquidado?) then (sim)
-  :lançamento + pix.transfers (SENT);
+  :lançamento + pix.transfers (PAID_OUT);
 else (não)
   :tarefa em FAILED (operador);
 endif

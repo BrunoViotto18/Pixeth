@@ -9,7 +9,7 @@ title Estados do pagamento (core.payment_status)
 AWAITING_PAYMENT --> PROCESSING : pagador pagou\n(Pix RECEIVED ou ETH PAID)
 AWAITING_PAYMENT --> EXPIRED : expires_at sem pagamento
 
-PROCESSING --> COMPLETED : lojista recebeu\n(Pix SENT ou ETH RELEASED)
+PROCESSING --> COMPLETED : lojista recebeu\n(Pix PAID_OUT ou ETH RELEASED)
 PROCESSING --> REFUNDED : devolvido ao pagador\n(Pix RETURNED ou ETH REFUNDED)
 PROCESSING --> REVERSED : MED procedente\n(ETH RECOVERED)
 PROCESSING --> FAILED : o fluxo automático\nnão concluiu

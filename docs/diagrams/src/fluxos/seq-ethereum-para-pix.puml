@@ -39,7 +39,7 @@ GW --> MM : evento Paid(paymentId, payer, amount)
 == 3. Detecção ==
 loop a cada novo bloco (réplica com a trava do ouvinte)
   W -> GW : eth_getLogs(Paid, desde ethereum.chain_cursor)
-  W -> DB : BEGIN\nINSERT jobs (CONFIRM_PAYMENT, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE ethereum.chain_cursor\nCOMMIT
+  W -> DB : BEGIN\nINSERT jobs (CONFIRM_PAYMENT, pagamento do paymentId\n  do evento, run_at = após N confirmações)\n  ON CONFLICT (payment_id, type) DO NOTHING\nUPDATE ethereum.chain_cursor\nCOMMIT
 end
 W -> DB : BEGIN\nlançamento + ethereum.transactions (PAID, txHash)\nCOMMIT
 
@@ -48,17 +48,17 @@ alt valor diferente da cotação ou pagamento expirado
   W -> GW : refund(paymentId) → payer
   W -> DB : lançamento + ethereum.transactions\n(REFUNDED, txHash)
 else valor correto
-  W -> GW : forward(paymentId) → conversionAddress
+  W -> GW : fundConversion(paymentId) → conversionAddress
   W -> PC : vender o ETH recebido
   PC --> W : BRL disponível na conta do Pixeth\n(id do pedido)
-  W -> DB : lançamento + ethereum.transactions (FORWARDED, txHash)\nlançamento + core.conversions (id do pedido)
+  W -> DB : lançamento + ethereum.transactions (CONVERSION_FUNDED, txHash)\nlançamento + core.conversions (id do pedido)
 
   group 5. Pagamento ao lojista
     W -> IDS : GET /v1/rails/pix/keys/{key_id} — mTLS
     IDS --> W : chave Pix (só em memória)
     W -> PSP : envio de Pix (API do PSP)\nchave de idempotência = paymentId
     PSP --> W : endToEndId
-    W -> DB : lançamento + pix.transfers\n(SENT, endToEndId)
+    W -> DB : lançamento + pix.transfers\n(PAID_OUT, endToEndId)
   end
 end
 @enduml

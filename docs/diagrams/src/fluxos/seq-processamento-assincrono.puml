@@ -12,7 +12,7 @@ participant "Worker\nréplica B" as WB
 participant "Sistema externo\n(PSP, provedor, RPC)" as EXT
 
 == Gravação: fato e tarefa na mesma transação ==
-S -> DB : BEGIN\nlançamento + extensão do trilho\nINSERT INTO jobs (type = 'FORWARD',\n  dedup_key = FORWARD:{paymentId})\nCOMMIT
+S -> DB : BEGIN\nlançamento + extensão do trilho\nINSERT INTO jobs (type = 'FUND_CONVERSION', payment_id)\nCOMMIT
 note right
   Ou as duas coisas acontecem, ou nenhuma:
   uma queda no meio não deixa o pagamento
@@ -46,7 +46,7 @@ end
 
 == Eventos de entrada ==
 EXT -> S : webhook ou evento da blockchain
-S -> DB : INSERT INTO jobs (…, dedup_key = pix:{endToEndId})\nON CONFLICT (dedup_key) DO NOTHING
+S -> DB : INSERT INTO jobs (CONFIRM_PAYMENT, payment_id)\nON CONFLICT (payment_id, type) DO NOTHING
 S --> EXT : 200, inclusive para duplicados
 
 == Ouvinte da blockchain ==
