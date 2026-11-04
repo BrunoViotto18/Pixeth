@@ -97,7 +97,6 @@ enum JobType {
   RELEASE
   RECOVER
   REFUND
-  EXPIRE
 }
 class OutboxJobQueue
 

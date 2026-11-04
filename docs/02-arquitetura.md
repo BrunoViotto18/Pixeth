@@ -29,4 +29,3 @@ Cada tipo de tarefa é um passo do pagamento, igual para qualquer trilho; o tril
 | `RELEASE` | `HoldingRail.release` | destino, se retém |
 | `RECOVER` | `HoldingRail.recover` | destino, se retém |
 | `REFUND` | `PaymentRail.refund` | origem |
-| `EXPIRE` | nenhuma: o pagamento expira por não ter sido pago | — |

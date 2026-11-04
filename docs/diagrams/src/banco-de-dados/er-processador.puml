@@ -80,7 +80,6 @@ package "Processamento" as g_proc {
     RELEASE
     RECOVER
     REFUND
-    EXPIRE
   }
 
   enum "core.job_status" as e_jstatus {

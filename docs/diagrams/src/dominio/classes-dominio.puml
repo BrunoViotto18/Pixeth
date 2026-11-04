@@ -40,7 +40,6 @@ package "Processamento" {
     RELEASE
     RECOVER
     REFUND
-    EXPIRE
   }
 
   enum JobStatus {
