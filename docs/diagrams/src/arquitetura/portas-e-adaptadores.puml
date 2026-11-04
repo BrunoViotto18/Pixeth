@@ -12,17 +12,24 @@ skinparam class<<futuro>> {
 }
 
 interface PaymentRail {
-  +id(): RailId
+  +id(): Rail
   +capabilities(): RailCapabilities
-  +createCollection(payment: Payment): Collection
-  +confirm(externalId: String): RailResult
+  +createCharge(payment: Payment): Charge
+  +confirmPayment(payment: Payment, externalId: String): RailResult
+  +forward(payment: Payment, instruction: PaymentInstruction): RailResult
+  +payOut(payment: Payment, destinationId: UUID): RailResult
   +refund(payment: Payment): RailResult
-  +payout(payment: Payment, destination: Destination): RailResult
+}
+
+interface HoldingRail {
+  +release(payment: Payment): RailResult
+  +recover(payment: Payment, medRef: String): RailResult
 }
 
 class RailCapabilities <<record>> {
   reversible: boolean
   supportsPayout: boolean
+  supportsHold: boolean
   typicalFinality: Duration
 }
 
@@ -52,7 +59,14 @@ class BoletoRail <<futuro>>
 
 interface ConversionProvider {
   +quote(source: Asset, target: Asset, amount: Money): Quote
-  +execute(quote: Quote, paymentId: UUID): ConversionResult
+  +createOrder(quote: Quote, paymentId: UUID): ConversionOrder
+  +getOrder(orderId: String): ConversionOrder
+}
+
+class ConversionOrder <<record>> {
+  orderId: String
+  instruction: PaymentInstruction
+  delivered: Money
 }
 class MockConversionProvider
 class HttpConversionProvider <<futuro>>
@@ -72,13 +86,27 @@ interface IdentityStore {
 class MtlsIdentityStoreClient
 
 interface JobQueue {
-  +enqueue(type: String, paymentId: UUID, payload: Json)
+  +enqueue(type: JobType, paymentId: UUID, dedupKey: String, runAt: Instant)
+}
+
+enum JobType {
+  CONFIRM_PAYMENT
+  FORWARD
+  CONVERT
+  PAY_OUT
+  RELEASE
+  RECOVER
+  REFUND
+  EXPIRE
 }
 class OutboxJobQueue
 
 PaymentRail ..> RailCapabilities
+PaymentRail <|-- HoldingRail
 PaymentRail <|.. PixRail
-PaymentRail <|.. EthereumRail
+HoldingRail <|.. EthereumRail
+ConversionProvider ..> ConversionOrder
+JobQueue ..> JobType
 PaymentRail <|.. BitcoinRail
 PaymentRail <|.. BoletoRail
 PixRail --> PixPspClient
@@ -91,8 +119,8 @@ JobQueue <|.. OutboxJobQueue
 
 note bottom of OutboxJobQueue
   enqueue() só insere na tabela jobs, na mesma
-  transação da mudança de estado; os workers
-  executam depois.
+  transação do fato que gerou o passo; os
+  workers executam depois.
 end note
 
 note right of MockConversionProvider

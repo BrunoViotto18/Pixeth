@@ -17,3 +17,16 @@
 ![Portas e implementações](diagrams/svg/arquitetura/portas-e-adaptadores.svg)
 
 [Fonte](diagrams/src/arquitetura/portas-e-adaptadores.puml)
+
+Cada tipo de tarefa é um passo do pagamento, igual para qualquer trilho; o trilho vem do pagamento (`source_rail` ou `destination_rail`), e a tarefa chama o adaptador correspondente:
+
+| Tarefa | Porta e operação | Trilho |
+|---|---|---|
+| `CONFIRM_PAYMENT` | `PaymentRail.confirmPayment` | origem |
+| `FORWARD` | `ConversionProvider.createOrder` + `PaymentRail.forward` (paga a cobrança do provedor) | origem |
+| `CONVERT` | `ConversionProvider.getOrder` (entrega do ativo convertido) | — |
+| `PAY_OUT` | `PaymentRail.payOut` | destino |
+| `RELEASE` | `HoldingRail.release` | destino, se retém |
+| `RECOVER` | `HoldingRail.recover` | destino, se retém |
+| `REFUND` | `PaymentRail.refund` | origem |
+| `EXPIRE` | nenhuma: o pagamento expira por não ter sido pago | — |
