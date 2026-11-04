@@ -29,7 +29,7 @@ note right
   repetir o PUT é seguro.
 end note
 PSP --> API : pixCopiaECola
-API -> DB : BEGIN\nINSERT payments (AWAITING_PAYMENT, expires_at = agora + 15 min)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
+API -> DB : BEGIN\nINSERT payments (expires_at = agora + 15 min)\nINSERT payment_status_events (seq 1, AWAITING_PAYMENT)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
 API --> SL : 201 {paymentId, checkoutUrl, pixCopiaECola}
 
 == 2. Pagamento ==
@@ -45,22 +45,31 @@ API --> PSP : 200
 W -> PSP : GET /pix/{endToEndId}
 note right : o corpo do webhook não é usado como prova
 PSP --> W : valor, txid, horário
-W -> DB : BEGIN\nUPDATE payments SET status = 'PAID'\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nlançamento PAYMENT_RECEIVED\nINSERT pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (CONVERT)\nCOMMIT
+W -> DB : BEGIN\nINSERT payment_status_events\n  (seq = último + 1, PROCESSING)\nlançamento + pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (CONVERT)\nCOMMIT
 
 == 4. Conversão e retenção ==
-W -> DB : CONVERTING
+W -> PC : criar pedido: R$ 100,00 → ETH\n(referência = paymentId)
+PC --> W : id do pedido + cobrança Pix do provedor
+W -> PSP : paga a cobrança do provedor\n(chave de idempotência = paymentId)
+PSP --> W : endToEndId do envio
+W -> DB : lançamento + pix.transfers (FORWARDED, endToEndId)
+note right
+  Os dois Pix do pagamento (recebido e
+  encaminhado) ficam ligados pelo paymentId,
+  enviado como referência no pedido.
+end note
 W -> IDS : GET /v1/rails/ethereum/wallets/{wallet_id} — mTLS
 IDS --> W : endereço da carteira (só em memória)
-W -> PC : converter R$ 100,00 em ETH para o pagamento
+W -> PC : entregar o ETH do pedido no contrato
 PC -> GW : hold(paymentId, carteira do lojista,\nreleaseAt = agora + janela) {value: 0,0058 ETH}
 GW --> PC : evento Held
 PC --> W : txHash
 W -> GW : recibo + confirmações
-W -> DB : BEGIN\nHELD; INSERT ethereum.holds (release_at)\nlançamentos CONVERSION e HOLD\nINSERT ethereum.transactions (HELD, txHash)\nCOMMIT
+W -> DB : BEGIN\nINSERT ethereum.holds (release_at)\nlançamento + core.conversions (id do pedido)\nlançamento + ethereum.transactions (HELD, txHash)\nINSERT jobs (RELEASE, run_at = release_at)\nCOMMIT
 
-alt conversão falhou
+alt pedido recusado (antes do envio ao provedor)
   W -> PSP : PUT /pix/{endToEndId}/devolucao/{id}
-  W -> DB : REFUNDED + lançamento REFUND\n+ pix.transfers (REFUNDED, endToEndId)
+  W -> DB : REFUNDED + lançamento\n+ pix.transfers (RETURNED, id da devolução)
 end
 
 note over W, GW

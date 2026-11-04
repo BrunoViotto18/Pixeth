@@ -12,11 +12,13 @@ participant "Worker\nréplica B" as WB
 participant "Sistema externo\n(PSP, provedor, RPC)" as EXT
 
 == Gravação: estado e tarefa na mesma transação ==
-S -> DB : BEGIN\nUPDATE payments SET status = 'PAID', version = version + 1\n  WHERE id = ? AND status = 'AWAITING_PAYMENT'\nINSERT INTO jobs (type = 'CONVERT', payment_id)\nCOMMIT
+S -> DB : BEGIN\nINSERT payment_status_events\n  (payment_id, seq = último + 1, PROCESSING)\nINSERT INTO jobs (type = 'CONVERT', payment_id)\nCOMMIT
 note right
   Ou as duas coisas acontecem, ou nenhuma:
   uma queda no meio não deixa o pagamento
-  pago sem a tarefa seguinte.
+  pago sem a tarefa seguinte. Se outra réplica
+  já gravou o mesmo seq, a chave primária
+  recusa o INSERT e a transação é desfeita.
 end note
 
 == Execução ==

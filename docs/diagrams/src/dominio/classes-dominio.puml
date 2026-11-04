@@ -27,8 +27,13 @@ class Payment {
   sourceRail: Rail
   destinationRail: Rail
   amount: Money
-  status: PaymentStatus
   expiresAt: Instant
+}
+
+class PaymentStatusEvent <<imutável>> {
+  seq: int
+  status: PaymentStatus
+  occurredAt: Instant
 }
 
 package "pix" {
@@ -49,6 +54,7 @@ package "pix" {
   }
 
   class MedEvent <<imutável>> {
+    seq: int
     status: MedStatus
     occurredAt: Instant
   }
@@ -87,13 +93,9 @@ enum Rail {
 
 enum PaymentStatus {
   AWAITING_PAYMENT
-  PAID
-  CONVERTING
-  HELD
-  DELIVERING
+  PROCESSING
   COMPLETED
   EXPIRED
-  REFUNDING
   REFUNDED
   REVERSED
   FAILED
@@ -107,7 +109,7 @@ enum MedStatus {
 }
 
 class JournalEntry <<imutável>> {
-  kind: EntryKind
+  source: EntrySource
   occurredAt: Instant
 }
 
@@ -125,14 +127,16 @@ enum LedgerAccount {
   RECOVERY
 }
 
-enum EntryKind {
-  PAYMENT_RECEIVED
+enum EntrySource {
+  PIX
+  ETHEREUM
   CONVERSION
-  HOLD
-  RELEASE
-  PAYOUT
-  REFUND
-  REVERSAL
+}
+
+class Conversion <<imutável>> {
+  provider: ConversionProvider
+  providerOrderId: String
+  occurredAt: Instant
 }
 
 class Job {
@@ -154,7 +158,8 @@ Money --> Asset
 Merchant --> "1" IdentityStoreNode : dados pessoais em
 Merchant "1" -- "0..*" Payment
 Payment --> Rail
-Payment --> PaymentStatus
+Payment *-- "1..*" PaymentStatusEvent : histórico de estados
+PaymentStatusEvent --> PaymentStatus
 JournalEntry *-- "0..1" PixTransfer : prova no Pix
 Payment *-- "0..*" Med
 Med *-- "1..*" MedEvent
@@ -169,13 +174,15 @@ Payment *-- "0..*" JournalEntry
 JournalEntry *-- "2..*" Posting
 Posting --> LedgerAccount
 Payment "0..1" -- "0..*" Job
-JournalEntry --> EntryKind
+JournalEntry --> EntrySource
+JournalEntry *-- "0..1" Conversion : prova no provedor
 
 note right of JournalEntry
   Livro-razão por partidas dobradas: cada movimento
   de dinheiro é um lançamento com partidas que somam
-  zero por ativo. Tipos e contas não dependem do
-  trilho; o registro do trilho (PixTransfer,
-  EthereumTransaction) guarda o identificador externo.
+  zero por ativo. As contas não dependem do trilho;
+  o que aconteceu fica na única extensão do
+  lançamento (PixTransfer, EthereumTransaction ou
+  Conversion), indicada por source.
 end note
 @enduml

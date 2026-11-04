@@ -703,7 +703,8 @@ components:
 
     PaymentStatus:
       type: string
-      enum: [AWAITING_PAYMENT, PAID, CONVERTING, HELD, DELIVERING, COMPLETED, EXPIRED, REFUNDING, REFUNDED, REVERSED, FAILED]
+      enum: [AWAITING_PAYMENT, PROCESSING, COMPLETED, EXPIRED, REFUNDED, REVERSED, FAILED]
+      description: Visão geral do pagamento, igual para qualquer trilho; o detalhe de cada passo está em `entries`.
 
     MedStatus:
       type: string
@@ -782,15 +783,19 @@ components:
 
     LedgerEntry:
       type: object
-      required: [kind, amount, occurredAt]
+      required: [source, kind, externalId, amount, occurredAt]
       properties:
-        kind:
+        source:
           type: string
-          enum: [PAYMENT_RECEIVED, CONVERSION, HOLD, RELEASE, PAYOUT, REFUND, REVERSAL]
-        rail: { $ref: '#/components/schemas/Rail' }
-        externalId:
+          enum: [PIX, ETHEREUM, CONVERSION]
+          description: Extensão que comprova o lançamento.
+        kind:
           type: [string, 'null']
-          description: 'endToEndId (pix.transfers) ou txHash (ethereum.transactions); null em CONVERSION'
+          description: 'Tipo do evento no trilho (pix.transfer_kind ou ethereum.transaction_kind); null em CONVERSION'
+          examples: [RECEIVED, PAID, HELD]
+        externalId:
+          type: string
+          description: 'endToEndId ou id da devolução (PIX), txHash (ETHEREUM) ou id do pedido no provedor (CONVERSION)'
         amount: { $ref: '#/components/schemas/Money' }
         occurredAt: { type: string, format: date-time }
 

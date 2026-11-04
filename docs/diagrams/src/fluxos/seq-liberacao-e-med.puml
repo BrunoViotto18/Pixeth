@@ -17,12 +17,12 @@ participant "PixethGateway\n(Sepolia)" as GW
 participant "Sistema do lojista" as SL
 
 == Liberação (caminho normal) ==
-loop agendador, em qualquer réplica
-  W -> DB : SELECT … FROM payments p\nJOIN ethereum.holds h ON h.payment_id = p.id\nWHERE p.status = 'HELD' AND h.release_at <= now()\nAND não há MED aberto para o pagamento\nFOR UPDATE SKIP LOCKED
+group tarefa RELEASE (run_at = release_at), em qualquer réplica
+  W -> DB : pega a tarefa (FOR UPDATE SKIP LOCKED)\ne confere que não há MED aberto
   W -> GW : release(paymentId)
   GW -> GW : require(block.timestamp >= releaseAt)\nenvia ao receiver (carteira do lojista)
   GW --> W : evento Released
-  W -> DB : COMPLETED + lançamento RELEASE\n+ ethereum.transactions (RELEASED, txHash)
+  W -> DB : COMPLETED + lançamento\n+ ethereum.transactions (RELEASED, txHash)
 end
 
 == MED durante a retenção ==
@@ -30,8 +30,8 @@ P -> PSP : contesta o Pix (via seu banco)
 PSP -> API : notificação de MED (formato do PSP) — mTLS
 API -> DB : INSERT pix.meds + pix.med_events (OPEN)\n(pagamento encontrado pelo endToEndId:\npix.transfers → lançamento → pagamento)
 note right
-  Com um MED aberto, o agendador
-  deixa de liberar este pagamento.
+  Com um MED aberto, a tarefa RELEASE
+  é adiada até o MED ser encerrado.
 end note
 API -> O : alerta no console
 O -> PSP : acompanha a análise e responde\n(portal ou API do PSP)
@@ -39,7 +39,10 @@ alt MED procedente e ainda antes de releaseAt
   O -> API : "Recuperar valor retido"
   W -> GW : recover(paymentId, medRef)
   GW -> GW : require(block.timestamp < releaseAt)\nenvia ao recoveryAddress
-  W -> DB : REVERSED; pix.med_events (RECOVERED);\nlançamento REVERSAL\n+ ethereum.transactions (RECOVERED, txHash)
+  W -> DB : REVERSED; pix.med_events (RECOVERED);\nlançamento + ethereum.transactions (RECOVERED, txHash)
+  PSP -> P : devolução especial (MED) ao pagador
+  PSP -> API : devolução efetuada (id da devolução)
+  W -> DB : lançamento + pix.transfers (MED_RETURNED, id da devolução)
 else MED não procedente
   O -> API : encerrar MED
   W -> DB : pix.med_events (CLOSED)\n(a liberação volta a valer)

@@ -13,7 +13,9 @@ endif
 :aguardar N confirmações;
 if (pagamento em AWAITING_PAYMENT?) then (não)
   if (pagamento EXPIRED?) then (sim)
-    :refund() ao pagador;
+    :lançamento + ethereum.transactions (PAID);
+    :refund() ao pagador\nlançamento + ethereum.transactions (REFUNDED);
+    :status EXPIRED → REFUNDED;
     stop
   else (não)
     :registrar para o operador;
@@ -21,20 +23,19 @@ if (pagamento em AWAITING_PAYMENT?) then (não)
   endif
 else (sim)
 endif
-:status → PAID\nlançamento PAYMENT_RECEIVED\n+ ethereum.transactions (PAID);
+:status → PROCESSING\nlançamento + ethereum.transactions (PAID);
 if (valor = cotação e antes de expires_at?) then (não)
-  :status → REFUNDING;
-  :refund() ao pagador;
+  :refund() ao pagador\nlançamento + ethereum.transactions (REFUNDED);
+  :status → REFUNDED;
   stop
 else (sim)
 endif
-:status → CONVERTING;
-:forward() ao provedor e venda;
-:status → DELIVERING;
+:forward() ao provedor\nlançamento + ethereum.transactions (FORWARDED);
+:provedor entrega o BRL\nlançamento + core.conversions;
 :buscar chave Pix no IdentityStore;
 :envio de Pix ao lojista;
 if (Pix liquidado?) then (sim)
-  :status → COMPLETED;
+  :status → COMPLETED\nlançamento + pix.transfers (SENT);
 else (não)
   :status → FAILED (operador);
 endif

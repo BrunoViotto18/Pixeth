@@ -1,4 +1,5 @@
 @startuml er-processador
+!pragma layout elk
 !include ../_estilo.iuml
 
 title Banco do processador
@@ -35,12 +36,10 @@ package "Participantes" as g_part {
     REVOKED
   }
 
-  note right of merchants
-    Sem dados pessoais.
-    owner_id, key_id e wallet_id
-    (IdentityStore) e subject_id
-    (Keycloak) são referências
-    lógicas, sem chave estrangeira.
+  note as n_part
+    Sem dados pessoais: owner_id, key_id,
+    wallet_id (IdentityStore) e subject_id
+    (Keycloak) são referências sem FK.
   end note
 }
 
@@ -101,9 +100,9 @@ package "MED" as g_med {
   }
 
   entity "pix.med_events" as pix_med_events <<imutável>> #EAF3EA {
-    * id : uuid <<PK>>
+    * med_id : uuid <<PK, FK>>
+    * seq : int <<PK>>
     --
-    * med_id : uuid <<FK>>
     * status : pix.med_status
     * occurred_at : timestamptz
   }
@@ -117,7 +116,7 @@ package "MED" as g_med {
 }
 
 package "Pagamento" as g_pay {
-  entity "core.payments" as payments {
+  entity "core.payments" as payments <<imutável>> #EAF3EA {
     * id : uuid <<PK>>
     --
     * merchant_id : uuid <<FK>>
@@ -125,21 +124,23 @@ package "Pagamento" as g_pay {
     * destination_rail : core.rail
     * amount : numeric(78,0)
     * asset : core.asset
-    * status : core.payment_status
     * expires_at : timestamptz
-    * version : bigint
     * created_at : timestamptz
+  }
+
+  entity "core.payment_status_events" as pay_events <<imutável>> #EAF3EA {
+    * payment_id : uuid <<PK, FK>>
+    * seq : int <<PK>>
+    --
+    * status : core.payment_status
+    * occurred_at : timestamptz
   }
 
   enum "core.payment_status" as e_pstatus {
     AWAITING_PAYMENT
-    PAID
-    CONVERTING
-    HELD
-    DELIVERING
+    PROCESSING
     COMPLETED
     EXPIRED
-    REFUNDING
     REFUNDED
     REVERSED
     FAILED
@@ -183,7 +184,7 @@ package "Livro-razão" as g_ledger {
     * id : uuid <<PK>>
     --
     * payment_id : uuid <<FK>>
-    * kind : core.entry_kind
+    * source : core.entry_source
     * occurred_at : timestamptz
   }
 
@@ -196,14 +197,10 @@ package "Livro-razão" as g_ledger {
     * amount : numeric(78,0)
   }
 
-  enum "core.entry_kind" as e_kind {
-    PAYMENT_RECEIVED
+  enum "core.entry_source" as e_source {
+    PIX
+    ETHEREUM
     CONVERSION
-    HOLD
-    RELEASE
-    PAYOUT
-    REFUND
-    REVERSAL
   }
 
   enum "core.ledger_account" as e_account {
@@ -216,15 +213,15 @@ package "Livro-razão" as g_ledger {
   }
 
   note bottom of postings
-    Em cada lançamento, as partidas
-    somam zero por ativo
-    (conferido no COMMIT).
+    No COMMIT, cada lançamento tem
+    partidas que somam zero por ativo
+    e exatamente uma extensão: a
+    indicada por source.
   end note
 
   entity "ethereum.transactions" as eth_transactions <<imutável>> #EAF3EA {
-    * id : uuid <<PK>>
+    * entry_id : uuid <<PK, FK>>
     --
-    * entry_id : uuid <<FK>>
     * kind : ethereum.transaction_kind
     * tx_hash : bytea
     * log_index : int
@@ -233,9 +230,8 @@ package "Livro-razão" as g_ledger {
   }
 
   entity "pix.transfers" as pix_transfers <<imutável>> #EAF3EA {
-    * id : uuid <<PK>>
+    * entry_id : uuid <<PK, FK>>
     --
-    * entry_id : uuid <<FK>>
     * kind : pix.transfer_kind
     * end_to_end_id : text <<UK>>
     * occurred_at : timestamptz
@@ -244,7 +240,22 @@ package "Livro-razão" as g_ledger {
   enum "pix.transfer_kind" as e_pix_transfer {
     RECEIVED
     SENT
-    REFUNDED
+    FORWARDED
+    RETURNED
+    MED_RETURNED
+  }
+
+  entity "core.conversions" as conversions <<imutável>> #EAF3EA {
+    * entry_id : uuid <<PK, FK>>
+    --
+    * provider : core.conversion_provider
+    * provider_order_id : text
+    * occurred_at : timestamptz
+    .. UK (provider, provider_order_id) ..
+  }
+
+  enum "core.conversion_provider" as e_cprov {
+    MOCK
   }
 
   enum "ethereum.transaction_kind" as e_eth_tx {
@@ -280,24 +291,26 @@ payments ||-down-o| eth_charges
 payments ||-down-o| pix_payouts
 payments ||-down-o| pix_charges
 payments ||-down-o{ entries
-entries ||-left-|{ postings
+entries ||-down-|{ postings
 entries ||-down-o| eth_transactions
 entries ||-down-o| pix_transfers
+entries ||-down-o| conversions
 pix_meds ||-down-|{ pix_med_events
+payments ||-left-|{ pay_events
 
 ' Posicionamento (sem significado no modelo)
-identity_stores -[hidden]right- e_isstatus
-jobs -[hidden]right- idem
-idem -[hidden]down- chain_cursor
-jobs -[hidden]down- e_jtype
-e_jtype -[hidden]right- e_jstatus
-pix_charges -[hidden]down- e_pstatus
+merchants -[hidden]down- n_part
+e_isstatus -[hidden]down- n_part
+e_jtype -[hidden]down- jobs
+e_jstatus -[hidden]down- jobs
 postings -[hidden]down- e_account
-entries -[hidden]down- e_kind
+conversions -[hidden]down- e_cprov
 pix_transfers -[hidden]down- e_pix_transfer
 eth_transactions -[hidden]down- e_eth_tx
 pix_med_events -[hidden]down- e_med
 e_rail -[hidden]right- e_asset
+idem -[hidden]down- chain_cursor
+identity_stores -[hidden]down- e_rail
 eth_holds -[hidden]down- pix_meds
 
 @enduml

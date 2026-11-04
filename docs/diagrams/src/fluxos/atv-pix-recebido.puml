@@ -16,21 +16,15 @@ if (pagamento em AWAITING_PAYMENT?) then (não)
   stop
 else (sim)
 endif
-:status → PAID\nlançamento PAYMENT_RECEIVED\n+ pix.transfers (RECEIVED);
-if (valor pago = valor da cobrança?) then (não)
-  :status → REFUNDING;
-  :devolução Pix total;
+:status → PROCESSING\nlançamento + pix.transfers (RECEIVED);
+if (valor pago = valor da cobrança\ne provedor aceitou o pedido?) then (não)
+  :devolução Pix total\nlançamento + pix.transfers (RETURNED);
+  :status → REFUNDED;
   stop
 else (sim)
 endif
-:status → CONVERTING;
-:provedor converte e chama hold()\ncom releaseAt = agora + janela;
-if (conversão concluída?) then (não)
-  :status → REFUNDING;
-  :devolução Pix total;
-  stop
-else (sim)
-endif
-:status → HELD;
+:paga a cobrança do provedor\nlançamento + pix.transfers (FORWARDED);
+:provedor entrega o ETH com hold()\nlançamento + core.conversions\nlançamento + ethereum.transactions (HELD);
+:agenda a tarefa RELEASE\npara release_at;
 stop
 @enduml

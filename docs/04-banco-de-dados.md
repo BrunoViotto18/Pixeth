@@ -4,7 +4,7 @@ O banco do processador não guarda dados pessoais: chaves Pix e carteiras ficam 
 
 No diagrama, as tabelas aparecem agrupadas pelo papel que cumprem, e não pelo *schema*; o prefixo do nome (`core.`, `pix.`, `ethereum.`) continua mostrando a qual *schema* cada uma pertence.
 
-**Tabelas imutáveis.** As tabelas marcadas como `«imutável»` (em verde no diagrama) nunca têm linhas alteradas nem apagadas: cada fato é gravado uma vez e permanece como registro. São as extensões do pagamento, o livro-razão com suas extensões e o MED. O banco garante isso por permissão: o papel da aplicação só recebe `SELECT` e `INSERT` nessas tabelas. As demais (`core.merchants`, `core.identity_stores`, `core.payments`, `core.jobs`, `core.idempotency_keys` e `ethereum.chain_cursor`) guardam estado corrente e podem ser atualizadas; o histórico do pagamento fica nas tabelas imutáveis.
+**Tabelas imutáveis.** As tabelas marcadas como `«imutável»` (em verde no diagrama) nunca têm linhas alteradas nem apagadas: cada fato é gravado uma vez e permanece como registro. São o pagamento com seu histórico de estados e suas extensões, o livro-razão com suas extensões e o MED. O banco garante isso por permissão: o papel da aplicação só recebe `SELECT` e `INSERT` nessas tabelas. As demais (`core.merchants`, `core.identity_stores`, `core.jobs`, `core.idempotency_keys` e `ethereum.chain_cursor`) guardam configuração ou estado operacional e podem ser atualizadas; nada do que aconteceu com um pagamento é sobrescrito.
 
 **Participantes** — quem participa dos pagamentos.
 
@@ -17,28 +17,30 @@ No diagrama, as tabelas aparecem agrupadas pelo papel que cumprem, e não pelo *
 
 | Tabela | Papel |
 |---|---|
-| `core.payments` | Dados comuns a todo pagamento: trilhos de origem e de destino (qualquer combinação), valor, ativo, estado e validade. `amount` é inteiro, na menor unidade do ativo (centavos para BRL, wei para ETH) |
+| `core.payments` | Dados comuns a todo pagamento, fixados na criação: trilhos de origem e de destino (qualquer combinação), valor, ativo e validade. `amount` é inteiro, na menor unidade do ativo (centavos para BRL, wei para ETH) |
+| `core.payment_status_events` | Histórico de estados do pagamento, só por inserção; o estado atual é a linha de maior `seq`, e a visão `core.payment_current_status` devolve o estado atual de cada pagamento. O estado é a visão geral, igual para qualquer trilho (`AWAITING_PAYMENT`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `REFUNDED`, `REVERSED`, `FAILED`); cada passo fica no livro-razão. Para mudar de estado, grava-se `seq` = último + 1: se duas réplicas tentam ao mesmo tempo (por exemplo, o Pix chega enquanto o pagamento expira), a chave primária `(payment_id, seq)` aceita só uma. Um gatilho só aceita as transições permitidas a partir do estado anterior |
 | `pix.charges` | Cobrança Pix (pagador em Pix): `txid` e BR Code |
 | `pix.payouts` | Envio Pix ao lojista: chave de destino escolhida na criação |
 | `ethereum.charges` | Cobrança em ETH (pagador em ETH): `onchain_id` usado em `pay()` e valor cotado; a validade da cotação é o `expires_at` do pagamento |
 | `ethereum.payouts` | Envio em ETH ao lojista: carteira de destino escolhida na criação |
 | `ethereum.holds` | Retenção no contrato antes da liberação ao lojista |
 
-**Livro-razão** — como o dinheiro se moveu, por partidas dobradas, e a prova de cada movimento no trilho. As extensões apontam só para o lançamento (`entry_id`); o pagamento é alcançado por ele.
+**Livro-razão** — como o dinheiro se moveu, por partidas dobradas, e a prova de cada movimento. Cada lançamento tem exatamente uma extensão, indicada por `source` (`PIX`, `ETHEREUM` ou `CONVERSION`); a chave primária da extensão é o próprio `entry_id`, e o pagamento é alcançado pelo lançamento. A regra é um fato externo por lançamento: um Pix, um evento do contrato ou um pedido ao provedor de conversão. As contas das partidas dizem o sentido do dinheiro (por exemplo, `GATEWAY` → `PAYER` é uma devolução), e a extensão diz o que aconteceu no trilho.
 
 | Tabela | Papel |
 |---|---|
-| `core.journal_entries` | Um lançamento por movimento de dinheiro, com um tipo que não depende do trilho |
-| `core.postings` | Partidas de cada lançamento (conta, ativo, valor; positivo entra, negativo sai). Um gatilho `DEFERRABLE` confere no `COMMIT` que somam zero por ativo. Neutralidade: ao fim de cada pagamento, `GATEWAY` e `ESCROW` somam zero |
-| `pix.transfers` | Extensão do lançamento: o Pix recebido, enviado ou devolvido que o comprova, com o `endToEndId` |
+| `core.journal_entries` | Um lançamento por fato externo; `source` indica qual extensão o comprova |
+| `core.postings` | Partidas de cada lançamento (conta, ativo, valor; positivo entra, negativo sai). Um gatilho `DEFERRABLE` confere no `COMMIT` que somam zero por ativo e que o lançamento tem exatamente uma extensão, a indicada por `source`. Neutralidade: ao fim de cada pagamento, `GATEWAY` e `ESCROW` somam zero |
+| `pix.transfers` | Extensão do lançamento: o Pix recebido, enviado ao lojista, encaminhado ao provedor de conversão, devolvido ou devolvido por MED (`RECEIVED`, `SENT`, `FORWARDED`, `RETURNED`, `MED_RETURNED`), com o `endToEndId` (numa devolução, o id da devolução) |
 | `ethereum.transactions` | Extensão do lançamento: o evento do contrato que o comprova (pagamento, retenção, liberação, encaminhamento, reembolso, recuperação), com `txHash` e `logIndex` |
+| `core.conversions` | Extensão do lançamento: a entrega do provedor de conversão, isto é, o ativo convertido que ele devolve (`provider` e `provider_order_id`, o id que o provedor devolve). O valor enviado ao provedor é um lançamento à parte (`FORWARDED`, no trilho de origem). Uma tabela só para todos os provedores, porque a prova tem a mesma forma em todos |
 
 **MED** — casos de devolução abertos pelo banco do pagador.
 
 | Tabela | Papel |
 |---|---|
 | `pix.meds` | Um MED aberto para um pagamento |
-| `pix.med_events` | Cada mudança de situação do MED; a situação atual é o evento mais recente |
+| `pix.med_events` | Cada mudança de situação do MED; a situação atual é a linha de maior `seq` (mesma regra de concorrência do histórico de estados do pagamento) |
 
 **Processamento** — o que move os pagamentos adiante.
 

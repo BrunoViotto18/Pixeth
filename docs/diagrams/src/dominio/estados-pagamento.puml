@@ -1,0 +1,29 @@
+@startuml estados-pagamento
+!include ../_estilo.iuml
+hide empty description
+
+title Estados do pagamento (core.payment_status)
+
+[*] --> AWAITING_PAYMENT : pagamento criado
+
+AWAITING_PAYMENT --> PROCESSING : pagador pagou\n(Pix RECEIVED ou ETH PAID)
+AWAITING_PAYMENT --> EXPIRED : expires_at sem pagamento
+
+PROCESSING --> COMPLETED : lojista recebeu\n(Pix SENT ou ETH RELEASED)
+PROCESSING --> REFUNDED : devolvido ao pagador\n(Pix RETURNED ou ETH REFUNDED)
+PROCESSING --> REVERSED : MED procedente\n(ETH RECOVERED)
+PROCESSING --> FAILED : o fluxo automático\nnão concluiu
+FAILED --> PROCESSING : operador reexecuta\nou inicia a devolução
+
+EXPIRED --> REFUNDED : ETH pago depois de expirar,\ndevolvido ao pagador
+
+COMPLETED --> [*]
+REFUNDED --> [*]
+REVERSED --> [*]
+EXPIRED --> [*]
+
+note right of PROCESSING
+  O passo atual (conversão, retenção,
+  envio) está no livro-razão, não no estado.
+end note
+@enduml

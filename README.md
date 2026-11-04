@@ -31,5 +31,9 @@ docs/diagrams/svg/**/*.svg    imagens geradas (o que o GitHub exibe)
 ```
 
 - **No GitHub:** a cada *push* para `main` que altere as fontes, a *action* [`diagrams.yml`](.github/workflows/diagrams.yml) gera os SVGs e os versiona.
-- **Localmente:** `./scripts/render-diagrams.sh` (Java 11+ e Graphviz; baixa o PlantUML na primeira execução).
-- **No VS Code:** extensão **PlantUML** (`jebbs.plantuml`); `Alt+D` abre a pré-visualização.
+- **Localmente:** `./scripts/render-diagrams.sh` (Java 17+ e Graphviz; baixa o PlantUML em `.tools/` na primeira execução).
+- **No VS Code:** extensão **PlantUML** (`jebbs.plantuml`); `Alt+D` abre a pré-visualização. O diagrama do processador usa o layout ELK, que o PlantUML embutido na extensão (1.2024.3) não inclui. Rode o script uma vez e substitua o jar da extensão pelo de `.tools/` (refazer após atualizar a extensão):
+  ```bash
+  E=~/.vscode-server/extensions/jebbs.plantuml-*   # ou ~/.vscode/extensions/… sem Remote-SSH
+  cp .tools/plantuml-1.2026.8.jar $E/plantuml.jar
+  ```

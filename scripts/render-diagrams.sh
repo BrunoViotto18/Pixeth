@@ -2,7 +2,7 @@
 # Renderiza todos os diagramas PlantUML de docs/diagrams/src para SVG em docs/diagrams/svg,
 # preservando a estrutura de pastas.
 #
-# Requisitos: Java 11+ e Graphviz (comando `dot`).
+# Requisitos: Java 17+ (o layout ELK, usado no diagrama do processador, exige) e Graphviz (comando `dot`).
 # Uso:        ./scripts/render-diagrams.sh
 # Variáveis:  PLANTUML_VERSION (padrão abaixo) ou PLANTUML_JAR (caminho para um jar já baixado).
 set -euo pipefail
