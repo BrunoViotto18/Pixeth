@@ -4,7 +4,7 @@ O banco do processador não guarda dados pessoais: chaves Pix e carteiras ficam 
 
 No diagrama, as tabelas aparecem agrupadas pelo papel que cumprem, e não pelo *schema*; o prefixo do nome (`core.`, `pix.`, `ethereum.`) continua mostrando a qual *schema* cada uma pertence.
 
-**Tabelas imutáveis.** As tabelas marcadas como `«imutável»` (em verde no diagrama) nunca têm linhas alteradas nem apagadas: cada fato é gravado uma vez e permanece como registro. São o pagamento com seu histórico de estados e suas extensões, o livro-razão com suas extensões e o MED. O banco garante isso por permissão: o papel da aplicação só recebe `SELECT` e `INSERT` nessas tabelas. As demais (`core.merchants`, `core.identity_stores`, `core.jobs`, `core.idempotency_keys` e `ethereum.chain_cursor`) guardam configuração ou estado operacional e podem ser atualizadas; nada do que aconteceu com um pagamento é sobrescrito.
+**Tabelas imutáveis.** As tabelas marcadas como `«imutável»` (em verde no diagrama) nunca têm linhas alteradas nem apagadas: cada fato é gravado uma vez e permanece como registro. São o pagamento e suas extensões, o livro-razão com suas extensões e o MED. O banco garante isso por permissão: o papel da aplicação só recebe `SELECT` e `INSERT` nessas tabelas. As demais (`core.merchants`, `core.identity_stores`, `core.jobs`, `core.idempotency_keys` e `ethereum.chain_cursor`) guardam configuração ou estado operacional e podem ser atualizadas; nada do que aconteceu com um pagamento é sobrescrito.
 
 **Participantes** — quem participa dos pagamentos.
 
@@ -18,7 +18,18 @@ No diagrama, as tabelas aparecem agrupadas pelo papel que cumprem, e não pelo *
 | Tabela | Papel |
 |---|---|
 | `core.payments` | Dados comuns a todo pagamento, fixados na criação: trilhos de origem e de destino (qualquer combinação), valor, ativo e validade. `amount` é inteiro, na menor unidade do ativo (centavos para BRL, wei para ETH) |
-| `core.payment_status_events` | Histórico de estados do pagamento, só por inserção; o estado atual é a linha de maior `seq`, e a visão `core.payment_current_status` devolve o estado atual de cada pagamento. O estado é a visão geral, igual para qualquer trilho (`AWAITING_PAYMENT`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `REFUNDED`, `REVERSED`, `FAILED`); cada passo fica no livro-razão. Para mudar de estado, grava-se `seq` = último + 1: se duas réplicas tentam ao mesmo tempo (por exemplo, o Pix chega enquanto o pagamento expira), a chave primária `(payment_id, seq)` aceita só uma. Um gatilho só aceita as transições permitidas a partir do estado anterior |
+
+O estado do pagamento não é gravado: a visão `core.payment_current_status` o deriva, com o tipo `core.payment_status` (que não aparece no diagrama, por não ser coluna de nenhuma tabela), do livro-razão, das tarefas e do prazo, na ordem abaixo (vale a primeira regra que se aplica). Como as contas das partidas não dependem do trilho, a regra vale para qualquer trilho, e o estado nunca diverge do que aconteceu com o dinheiro.
+
+| Estado | Regra |
+|---|---|
+| `FAILED` | o pagamento tem uma tarefa em `FAILED` (cabe ao operador) |
+| `REVERSED` | alguma partida credita `RECOVERY` (valor recuperado por MED) |
+| `REFUNDED` | alguma partida credita `PAYER` (o dinheiro voltou ao pagador) |
+| `COMPLETED` | alguma partida credita `MERCHANT` |
+| `PROCESSING` | alguma partida debita `PAYER` (o pagador pagou) |
+| `EXPIRED` | não há partidas e `expires_at` já passou |
+| `AWAITING_PAYMENT` | não há partidas e `expires_at` ainda não passou |
 | `pix.charges` | Cobrança Pix (pagador em Pix): `txid` e BR Code |
 | `pix.payouts` | Envio Pix ao lojista: chave de destino escolhida na criação |
 | `ethereum.charges` | Cobrança em ETH (pagador em ETH): `onchain_id` usado em `pay()` e valor cotado; a validade da cotação é o `expires_at` do pagamento |

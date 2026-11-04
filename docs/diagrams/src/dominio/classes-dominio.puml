@@ -28,12 +28,7 @@ class Payment {
   destinationRail: Rail
   amount: Money
   expiresAt: Instant
-}
-
-class PaymentStatusEvent <<imutável>> {
-  seq: int
-  status: PaymentStatus
-  occurredAt: Instant
+  /status: PaymentStatus
 }
 
 package "pix" {
@@ -158,8 +153,7 @@ Money --> Asset
 Merchant --> "1" IdentityStoreNode : dados pessoais em
 Merchant "1" -- "0..*" Payment
 Payment --> Rail
-Payment *-- "1..*" PaymentStatusEvent : histórico de estados
-PaymentStatusEvent --> PaymentStatus
+Payment ..> PaymentStatus : /status (derivado)
 JournalEntry *-- "0..1" PixTransfer : prova no Pix
 Payment *-- "0..*" Med
 Med *-- "1..*" MedEvent

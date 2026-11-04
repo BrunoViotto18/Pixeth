@@ -16,10 +16,9 @@ if (pagamento em AWAITING_PAYMENT?) then (não)
   stop
 else (sim)
 endif
-:status → PROCESSING\nlançamento + pix.transfers (RECEIVED);
+:lançamento + pix.transfers (RECEIVED);
 if (valor pago = valor da cobrança\ne provedor aceitou o pedido?) then (não)
   :devolução Pix total\nlançamento + pix.transfers (RETURNED);
-  :status → REFUNDED;
   stop
 else (sim)
 endif

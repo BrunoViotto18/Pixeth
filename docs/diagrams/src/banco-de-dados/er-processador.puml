@@ -73,10 +73,10 @@ package "Processamento" as g_proc {
   }
 
   enum "core.job_type" as e_jtype {
-    CONFIRM_PIX
-    CONFIRM_DEPOSIT
+    CONFIRM_PAYMENT
+    FORWARD
     CONVERT
-    PAY_OUT_PIX
+    PAY_OUT
     RELEASE
     RECOVER
     REFUND
@@ -126,24 +126,6 @@ package "Pagamento" as g_pay {
     * asset : core.asset
     * expires_at : timestamptz
     * created_at : timestamptz
-  }
-
-  entity "core.payment_status_events" as pay_events <<imutável>> #EAF3EA {
-    * payment_id : uuid <<PK, FK>>
-    * seq : int <<PK>>
-    --
-    * status : core.payment_status
-    * occurred_at : timestamptz
-  }
-
-  enum "core.payment_status" as e_pstatus {
-    AWAITING_PAYMENT
-    PROCESSING
-    COMPLETED
-    EXPIRED
-    REFUNDED
-    REVERSED
-    FAILED
   }
 
   entity "pix.payouts" as pix_payouts <<imutável>> #EAF3EA {
@@ -296,7 +278,6 @@ entries ||-down-o| eth_transactions
 entries ||-down-o| pix_transfers
 entries ||-down-o| conversions
 pix_meds ||-down-|{ pix_med_events
-payments ||-left-|{ pay_events
 
 ' Posicionamento (sem significado no modelo)
 merchants -[hidden]down- n_part
@@ -312,5 +293,6 @@ e_rail -[hidden]right- e_asset
 idem -[hidden]down- chain_cursor
 identity_stores -[hidden]down- e_rail
 eth_holds -[hidden]down- pix_meds
+jobs -[hidden]down- pix_payouts
 
 @enduml

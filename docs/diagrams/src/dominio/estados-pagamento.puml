@@ -23,7 +23,8 @@ REVERSED --> [*]
 EXPIRED --> [*]
 
 note right of PROCESSING
-  O passo atual (conversão, retenção,
-  envio) está no livro-razão, não no estado.
+  O estado não é gravado: é derivado do
+  livro-razão. O passo atual (conversão,
+  retenção, envio) está nos lançamentos.
 end note
 @enduml

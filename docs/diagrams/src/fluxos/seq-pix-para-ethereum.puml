@@ -29,7 +29,7 @@ note right
   repetir o PUT é seguro.
 end note
 PSP --> API : pixCopiaECola
-API -> DB : BEGIN\nINSERT payments (expires_at = agora + 15 min)\nINSERT payment_status_events (seq 1, AWAITING_PAYMENT)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
+API -> DB : BEGIN\nINSERT payments (expires_at = agora + 15 min)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
 API --> SL : 201 {paymentId, checkoutUrl, pixCopiaECola}
 
 == 2. Pagamento ==
@@ -40,12 +40,12 @@ BP -> PSP : liquida pelo SPI
 
 == 3. Confirmação ==
 PSP -> API : webhook {endToEndId, txid} — mTLS
-API -> DB : INSERT jobs (CONFIRM_PIX,\ndedup_key = pix:{endToEndId})\nON CONFLICT DO NOTHING
+API -> DB : INSERT jobs (CONFIRM_PAYMENT,\ndedup_key = pix:{endToEndId})\nON CONFLICT DO NOTHING
 API --> PSP : 200
 W -> PSP : GET /pix/{endToEndId}
 note right : o corpo do webhook não é usado como prova
 PSP --> W : valor, txid, horário
-W -> DB : BEGIN\nINSERT payment_status_events\n  (seq = último + 1, PROCESSING)\nlançamento + pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (CONVERT)\nCOMMIT
+W -> DB : BEGIN\nlançamento + pix.transfers (RECEIVED, endToEndId)\nINSERT jobs (FORWARD)\nCOMMIT
 
 == 4. Conversão e retenção ==
 W -> PC : criar pedido: R$ 100,00 → ETH\n(referência = paymentId)
@@ -69,7 +69,7 @@ W -> DB : BEGIN\nINSERT ethereum.holds (release_at)\nlançamento + core.conversi
 
 alt pedido recusado (antes do envio ao provedor)
   W -> PSP : PUT /pix/{endToEndId}/devolucao/{id}
-  W -> DB : REFUNDED + lançamento\n+ pix.transfers (RETURNED, id da devolução)
+  W -> DB : lançamento + pix.transfers\n(RETURNED, id da devolução)
 end
 
 note over W, GW

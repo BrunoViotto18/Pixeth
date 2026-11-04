@@ -24,7 +24,7 @@ SL -> API : POST /v1/payments {amount: "100.00 BRL",\nsourceRail: ETHEREUM, dest
 API -> IDS : GET /v1/rails/pix/keys/{keyId}?view=masked — mTLS\n(existe e pertence ao owner_id do lojista?)
 API -> PC : cotação ETH → BRL
 PC --> API : 0,0058 ETH, válida por 15 min
-API -> DB : BEGIN\nINSERT payments (expires_at = validade da cotação)\nINSERT payment_status_events (seq 1, AWAITING_PAYMENT)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (valor em wei)\nINSERT pix.payouts (key_id)\nCOMMIT
+API -> DB : BEGIN\nINSERT payments (expires_at = validade da cotação)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (valor em wei)\nINSERT pix.payouts (key_id)\nCOMMIT
 API --> SL : 201 {paymentId, checkoutUrl, amount: "0.0058 ETH"}
 
 == 2. Pagamento ==
@@ -39,14 +39,14 @@ GW --> MM : evento Paid(paymentId, payer, amount)
 == 3. Detecção ==
 loop a cada novo bloco (réplica com a trava do ouvinte)
   W -> GW : eth_getLogs(Paid, desde ethereum.chain_cursor)
-  W -> DB : BEGIN\nINSERT jobs (CONFIRM_DEPOSIT, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE ethereum.chain_cursor\nCOMMIT
+  W -> DB : BEGIN\nINSERT jobs (CONFIRM_PAYMENT, após N confirmações,\n  dedup_key = eth:{txHash}:{logIndex}) ON CONFLICT DO NOTHING\nUPDATE ethereum.chain_cursor\nCOMMIT
 end
-W -> DB : BEGIN\nINSERT payment_status_events\n  (seq = último + 1, PROCESSING)\nlançamento + ethereum.transactions (PAID, txHash)\nCOMMIT
+W -> DB : BEGIN\nlançamento + ethereum.transactions (PAID, txHash)\nCOMMIT
 
 == 4. Validação ==
 alt valor diferente da cotação ou pagamento expirado
   W -> GW : refund(paymentId) → payer
-  W -> DB : REFUNDED + lançamento\n+ ethereum.transactions (REFUNDED, txHash)
+  W -> DB : lançamento + ethereum.transactions\n(REFUNDED, txHash)
 else valor correto
   W -> GW : forward(paymentId) → conversionAddress
   W -> PC : vender o ETH recebido
@@ -58,7 +58,7 @@ else valor correto
     IDS --> W : chave Pix (só em memória)
     W -> PSP : envio de Pix (API do PSP)\nchave de idempotência = paymentId
     PSP --> W : endToEndId
-    W -> DB : COMPLETED + lançamento\n+ pix.transfers (SENT, endToEndId)
+    W -> DB : lançamento + pix.transfers\n(SENT, endToEndId)
   end
 end
 @enduml

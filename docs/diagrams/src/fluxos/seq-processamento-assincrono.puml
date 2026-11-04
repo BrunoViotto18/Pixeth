@@ -11,14 +11,16 @@ participant "Worker\nréplica A" as WA
 participant "Worker\nréplica B" as WB
 participant "Sistema externo\n(PSP, provedor, RPC)" as EXT
 
-== Gravação: estado e tarefa na mesma transação ==
-S -> DB : BEGIN\nINSERT payment_status_events\n  (payment_id, seq = último + 1, PROCESSING)\nINSERT INTO jobs (type = 'CONVERT', payment_id)\nCOMMIT
+== Gravação: fato e tarefa na mesma transação ==
+S -> DB : BEGIN\nlançamento + extensão do trilho\nINSERT INTO jobs (type = 'FORWARD',\n  dedup_key = FORWARD:{paymentId})\nCOMMIT
 note right
   Ou as duas coisas acontecem, ou nenhuma:
   uma queda no meio não deixa o pagamento
   pago sem a tarefa seguinte. Se outra réplica
-  já gravou o mesmo seq, a chave primária
-  recusa o INSERT e a transação é desfeita.
+  já gravou o mesmo fato ou a mesma tarefa, uma
+  chave única recusa o INSERT e a transação é
+  desfeita. O estado do pagamento não é gravado:
+  é derivado do livro-razão.
 end note
 
 == Execução ==
@@ -30,7 +32,7 @@ note right
 end note
 WA -> EXT : chamada com chave de idempotência\n(txid, id da devolução, paymentId)
 EXT --> WA : resultado
-WA -> DB : atualiza o pagamento + INSERT jobs (próximo passo)\nUPDATE jobs SET status = 'DONE'\nCOMMIT
+WA -> DB : lançamento + INSERT jobs (próximo passo)\nUPDATE jobs SET status = 'DONE'\nCOMMIT
 
 == Falhas ==
 alt erro no sistema externo

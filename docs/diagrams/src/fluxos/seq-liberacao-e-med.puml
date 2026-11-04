@@ -22,7 +22,7 @@ group tarefa RELEASE (run_at = release_at), em qualquer réplica
   W -> GW : release(paymentId)
   GW -> GW : require(block.timestamp >= releaseAt)\nenvia ao receiver (carteira do lojista)
   GW --> W : evento Released
-  W -> DB : COMPLETED + lançamento\n+ ethereum.transactions (RELEASED, txHash)
+  W -> DB : lançamento + ethereum.transactions\n(RELEASED, txHash)
 end
 
 == MED durante a retenção ==
@@ -39,7 +39,7 @@ alt MED procedente e ainda antes de releaseAt
   O -> API : "Recuperar valor retido"
   W -> GW : recover(paymentId, medRef)
   GW -> GW : require(block.timestamp < releaseAt)\nenvia ao recoveryAddress
-  W -> DB : REVERSED; pix.med_events (RECOVERED);\nlançamento + ethereum.transactions (RECOVERED, txHash)
+  W -> DB : pix.med_events (RECOVERED);\nlançamento + ethereum.transactions (RECOVERED, txHash)
   PSP -> P : devolução especial (MED) ao pagador
   PSP -> API : devolução efetuada (id da devolução)
   W -> DB : lançamento + pix.transfers (MED_RETURNED, id da devolução)
