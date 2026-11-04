@@ -1,12 +1,15 @@
 @startuml er-identitystore
+!pragma layout elk
 !include ../_estilo.iuml
 
 title Banco do IdentityStore
 
 hide circle
+hide empty members
 skinparam linetype ortho
+skinparam noteTextAlignment left
 
-package "core" {
+package "Titulares" as g_owner {
   entity "core.owners" as owners {
     * id : uuid <<PK>>
     --
@@ -15,17 +18,13 @@ package "core" {
     * created_at : timestamptz
   }
 
-  entity "core.idempotency_keys" as idem {
-    * scope_id : text <<PK>>
-    * key : text <<PK>>
-    --
-    * request_hash : text
-    * resource_id : uuid
-    * expires_at : timestamptz
-  }
+  note as n_owner
+    Toda coluna bytea é cifrada
+    pela aplicação.
+  end note
 }
 
-package "pix" {
+package "Destinos" as g_dest {
   entity "pix.keys" as pix_keys {
     * id : uuid <<PK>>
     --
@@ -42,9 +41,7 @@ package "pix" {
     PHONE
     EVP
   }
-}
 
-package "ethereum" {
   entity "ethereum.wallets" as eth_wallets {
     * id : uuid <<PK>>
     --
@@ -57,34 +54,21 @@ package "ethereum" {
   }
 }
 
-owners ||--o{ pix_keys
-owners ||--o{ eth_wallets
-pix_keys ..> pix_key_type
+package "Processamento" as g_proc {
+  entity "core.idempotency_keys" as idem {
+    * scope_id : text <<PK>>
+    * key : text <<PK>>
+    --
+    * request_hash : text
+    * resource_id : uuid
+    * expires_at : timestamptz
+  }
+}
 
-note bottom of owners
-  Todos os dados pessoais do sistema estão aqui.
-  Toda coluna bytea é cifrada pela aplicação, com
-  chave do operador do IdentityStore.
-  Os ids são gerados pelo IdentityStore; o processador
-  só os registra.
-  Um schema por trilho de pagamento; um titular pode
-  ter várias chaves Pix e várias carteiras.
-end note
+' Chaves estrangeiras
+owners ||-down-o{ pix_keys
+owners ||-down-o{ eth_wallets
 
-note right of idem
-  Só para repetições seguras de criações
-  (titular, chave, carteira) após uma falha
-  de rede: guarda a chave por 24 h e depois
-  é apagada. Não contém dados pessoais.
-  scope_id = identidade do processador que
-  chamou (lida do certificado mTLS), para que
-  processadores diferentes não colidam.
-end note
-
-note right of pix_key_type
-  Tipos de chave definidos pelo BCB:
-  CPF, CNPJ, e-mail, celular (PHONE) e
-  chave aleatória (EVP, um UUID gerado
-  pela instituição).
-end note
+' Posicionamento (sem significado no modelo)
+pix_keys -[hidden]down- pix_key_type
 @enduml

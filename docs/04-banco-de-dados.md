@@ -71,7 +71,20 @@ Ids entre serviços (o id do lojista no IdentityStore, o usuário no Keycloak) n
 
 ## IdentityStore
 
-Guarda todos os dados pessoais do sistema, cifrados pela aplicação, e gera os próprios ids: o titular (`core.owners`: nome e CPF/CNPJ) e um *schema* por trilho de pagamento (`pix.keys`, `ethereum.wallets`), cada um com as tabelas e os campos do seu trilho.
+Guarda todos os dados pessoais do sistema, cifrados pela aplicação, e gera os próprios ids; o processador só os registra.
+
+**Titulares** — `core.owners`: nome e CPF/CNPJ do titular.
+
+**Destinos** — um *schema* por trilho de pagamento, cada um com os campos do seu trilho; um titular pode ter várias chaves Pix e várias carteiras.
+
+| Tabela | Papel |
+|---|---|
+| `pix.keys` | Chaves Pix do titular. `pix.key_type` segue os tipos definidos pelo BCB: CPF, CNPJ, e-mail, celular (`PHONE`) e chave aleatória (`EVP`, um UUID gerado pela instituição) |
+| `ethereum.wallets` | Carteiras do titular, com a mensagem SIWE e a assinatura que provam a posse do endereço |
+
+**Processamento** — `core.idempotency_keys`: permite repetir com segurança uma criação (titular, chave, carteira) depois de uma falha de rede. `scope_id` é a identidade do processador que chamou, lida do certificado mTLS, para que processadores diferentes não colidam. A chave é guardada por 24 h e depois apagada, e não contém dados pessoais.
+
+Toda coluna `bytea` é cifrada pela aplicação, com chave do operador do IdentityStore.
 
 ![ER do IdentityStore](diagrams/svg/banco-de-dados/er-identitystore.svg)
 
