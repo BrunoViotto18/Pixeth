@@ -4,61 +4,76 @@
 title Arquitetura hexagonal do processador
 
 left to right direction
+skinparam component<<porta>> {
+  BackgroundColor #FFF8E8
+  BorderColor #B08A3C
+}
 
-package "Adaptadores de entrada" {
+package "Adaptadores de entrada" as g_in {
   component "API REST\n(lojista e checkout)" as restApi
   component "Webhooks do PSP" as pspWebhook
-  component "Inscrição de\nIdentityStores" as enrollApi
   component "Ouvinte da blockchain" as chainListener
-  component "Executor de tarefas\n(SKIP LOCKED)" as jobRunner
-  component "Agendadores" as schedulers
+  component "Executor de tarefas" as jobRunner
+  component "Console do operador" as console
 }
 
-package "Núcleo" {
-  component "Orquestrador de pagamentos" as orch
+package "Núcleo" as g_core {
+  component "Cadastro" <<porta>> as IMerch
+  component "Pagamentos" <<porta>> as IPay
+  component "Operação" <<porta>> as IOps
+  component "Avisos de pagamento" <<porta>> as INotif
+  component "Execução de tarefas" <<porta>> as ISteps
+
   component "Lojistas e destinos" as merchants
+  component "Operação\n(MED, falhas, IdentityStores)" as ops
+  component "Orquestrador de pagamentos" as orch
+  component "Livro-razão" as ledger
   component "AC da implantação" as pki
-  interface "PaymentRail" as IRail
-  interface "ConversionProvider" as IConv
-  interface "IdentityStore" as IIdentity
-  interface "JobQueue" as IJobs
-  interface "Repositórios" as IRepo
+
+  component "IdentityStore" <<porta>> as IIdentity
+  component "Repositórios" <<porta>> as IRepo
+  component "JobQueue" <<porta>> as IJobs
+  component "PaymentRail" <<porta>> as IRail
+  component "ConversionProvider" <<porta>> as IConv
 }
 
-package "Adaptadores de saída" {
-  component "Trilho Pix\n(API Pix — Efí)" as pixRail
-  component "Trilho Ethereum\n(Web3j + PixethGateway)" as ethRail
-  component "Conversão simulada" as convMock
+package "Adaptadores de saída" as g_out {
   component "Cliente IdentityStore\n(mTLS)" as idClient
-  component "Tabela de tarefas\n(outbox)" as jobTable
-  component "Repositórios\n(PostgreSQL)" as jpa
+  component "PostgreSQL" as pg
+  component "Trilho Ethereum\n(Web3j + PixethGateway)" as ethRail
+  component "Trilho Pix\n(API Pix — Efí)" as pixRail
+  component "Conversão simulada" as convMock
+  component "Tabela de tarefas" as jobTable
 }
 
-restApi --> orch
-restApi --> merchants
-pspWebhook --> orch
-enrollApi --> pki
-chainListener --> orch
-jobRunner --> orch
-schedulers --> orch
+restApi --> IMerch
+restApi --> IPay
+pspWebhook --> INotif
+chainListener --> INotif
+jobRunner --> ISteps
+console --> IOps
 
-orch ..> IRail
-orch ..> IConv
-orch ..> IJobs
-orch ..> IRepo
-merchants ..> IIdentity
-merchants ..> IRepo
+IMerch --> merchants
+IPay --> orch
+IOps --> ops
+INotif --> orch
+ISteps --> orch
 
-IRail -- pixRail
-IRail -- ethRail
-IConv -- convMock
-IIdentity -- idClient
-IJobs -- jobTable
-IRepo -- jpa
+ops --> pki
+orch --> ledger
 
-note bottom of ethRail
-  Um novo sistema de pagamento entra
-  implementando PaymentRail: um adaptador
-  por sistema, crescimento linear.
-end note
+merchants ...> IIdentity
+merchants ...> IRepo
+ledger ..> IRepo
+ops ...> IJobs
+orch ...> IJobs
+orch ...> IRail
+orch ...> IConv
+
+IIdentity <|.. idClient
+IRepo <|.. pg
+IRail <|.. pixRail
+IRail <|.. ethRail
+IConv <|.. convMock
+IJobs <|.. jobTable
 @enduml

@@ -6,7 +6,7 @@ title Casos de uso — Operador e processos automáticos
 left to right direction
 
 actor "Operador" as O
-actor "Tempo\n(agendadores)" as T
+actor "Tempo\n(tarefas com run_at)" as T
 
 rectangle "Pixeth" {
   usecase "Inscrever IdentityStore" as UC_Inscrever
