@@ -19,6 +19,8 @@ package "Participantes" as g_part {
     * status : core.identity_store_status
     * certificate_serial : text
     * certificate_not_after : timestamptz
+    * created_at : timestamptz
+    * updated_at : timestamptz
   }
 
   entity "core.merchants" as merchants {
@@ -29,6 +31,7 @@ package "Participantes" as g_part {
     * identity_store_id : uuid <<FK>>
     * owner_id : uuid
     * created_at : timestamptz
+    * updated_at : timestamptz
   }
 
   enum "core.identity_store_status" as e_isstatus {
@@ -65,12 +68,14 @@ package "Processamento" as g_proc {
     * request_hash : text
     * resource_id : uuid
     * expires_at : timestamptz
+    * created_at : timestamptz
   }
 
   entity "ethereum.chain_cursor" as chain_cursor {
     * chain_id : bigint <<PK>>
     --
     * last_block : bigint
+    * updated_at : timestamptz
   }
 
   enum "core.job_type" as e_jtype {
@@ -138,7 +143,7 @@ package "Pagamento" as g_pay {
     * payment_id : uuid <<PK, FK>>
     --
     * onchain_id : bytea <<UK>>
-    * amount_wei : numeric(78,0)
+    * amount : numeric(78,0)
   }
 
   entity "pix.charges" as pix_charges <<imutável>> #EAF3EA {
@@ -146,6 +151,7 @@ package "Pagamento" as g_pay {
     --
     * txid : text <<UK>>
     * br_code : text
+    * amount : numeric(78,0)
   }
 
   entity "ethereum.payouts" as eth_payouts <<imutável>> #EAF3EA {
@@ -159,7 +165,33 @@ package "Pagamento" as g_pay {
     --
     * release_at : timestamptz
   }
+
+  entity "core.payment_current_status" as v_status <<view>> {
+    * payment_id : uuid
+    --
+    * status : core.payment_status
+  }
+
+  enum "core.payment_status" as e_pstatus {
+    AWAITING_PAYMENT
+    PROCESSING
+    COMPLETED
+    EXPIRED
+    REFUNDED
+    REVERSED
+    FAILED
+  }
 }
+
+note as n_commit
+  Gatilhos no COMMIT conferem:
+  - cada pagamento tem exatamente uma
+    cobrança e um destino, nos esquemas
+    de source_rail e destination_rail;
+  - cada lançamento tem partidas que
+    somam zero por ativo e exatamente
+    uma extensão, a indicada por source.
+end note
 
 package "Livro-razão" as g_ledger {
   entity "core.journal_entries" as entries <<imutável>> #EAF3EA {
@@ -168,6 +200,7 @@ package "Livro-razão" as g_ledger {
     * payment_id : uuid <<FK>>
     * source : core.entry_source
     * occurred_at : timestamptz
+    * created_at : timestamptz
   }
 
   entity "core.postings" as postings <<imutável>> #EAF3EA {
@@ -194,12 +227,6 @@ package "Livro-razão" as g_ledger {
     RECOVERY
   }
 
-  note bottom of postings
-    No COMMIT, cada lançamento tem
-    partidas que somam zero por ativo
-    e exatamente uma extensão: a
-    indicada por source.
-  end note
 
   entity "ethereum.transactions" as eth_transactions <<imutável>> #EAF3EA {
     * entry_id : uuid <<PK, FK>>
@@ -207,7 +234,6 @@ package "Livro-razão" as g_ledger {
     * kind : ethereum.transaction_kind
     * tx_hash : bytea
     * log_index : int
-    * occurred_at : timestamptz
     .. UK (tx_hash, log_index) ..
   }
 
@@ -216,7 +242,6 @@ package "Livro-razão" as g_ledger {
     --
     * kind : pix.transfer_kind
     * end_to_end_id : text <<UK>>
-    * occurred_at : timestamptz
   }
 
   enum "pix.transfer_kind" as e_pix_transfer {
@@ -230,13 +255,12 @@ package "Livro-razão" as g_ledger {
   entity "core.conversions" as conversions <<imutável>> #EAF3EA {
     * entry_id : uuid <<PK, FK>>
     --
-    * provider : core.conversion_provider
+    * provider : core.conversion_provider_type
     * provider_order_id : text
-    * occurred_at : timestamptz
     .. UK (provider, provider_order_id) ..
   }
 
-  enum "core.conversion_provider" as e_cprov {
+  enum "core.conversion_provider_type" as e_cprov {
     MOCK
   }
 
@@ -285,6 +309,7 @@ e_isstatus -[hidden]down- n_part
 e_jtype -[hidden]down- jobs
 e_jstatus -[hidden]down- jobs
 postings -[hidden]down- e_account
+v_status -[hidden]down- e_pstatus
 conversions -[hidden]down- e_cprov
 pix_transfers -[hidden]down- e_pix_transfer
 eth_transactions -[hidden]down- e_eth_tx
@@ -295,4 +320,6 @@ identity_stores -[hidden]down- e_rail
 eth_holds -[hidden]down- pix_meds
 jobs -[hidden]down- pix_payouts
 
+payments -[hidden]down- n_commit
+v_status -[hidden]down- n_commit
 @enduml
