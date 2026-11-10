@@ -91,14 +91,15 @@ package "Pagamento" {
     ETHEREUM
   }
 
-  abstract class Charge <<imutável>>
+  abstract class Charge <<imutável>> {
+    amount: Money
+  }
   class PixCharge <<imutável>> {
     txid: String
     brCode: String
   }
   class EthereumCharge <<imutável>> {
     onchainId: Bytes32
-    amount: Money
   }
 
   abstract class Payout <<imutável>>
