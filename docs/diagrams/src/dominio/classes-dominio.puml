@@ -6,6 +6,7 @@ title Modelo de domínio
 
 hide empty members
 skinparam linetype ortho
+skinparam wrapWidth 420
 
 package "Participantes" {
   class Merchant {
@@ -13,24 +14,36 @@ package "Participantes" {
     subjectId: String
     displayName: String
     ownerId: UUID
+    createdAt: Instant
   }
 
   class IdentityStoreNode {
     id: UUID
     baseUrl: String
-    status: NodeStatus
+    status: IdentityStoreStatus
+    certificateSerial: String
     certificateNotAfter: Instant
+    revoke()
+    renewCertificate(serial: String, notAfter: Instant)
+  }
+
+  enum IdentityStoreStatus {
+    ACTIVE
+    REVOKED
   }
 }
 
 package "Processamento" {
   class Job {
+    id: UUID
     type: JobType
     status: JobStatus
     attempts: int
     runAt: Instant
-    createdAt: Instant
-    updatedAt: Instant
+    lastError: String [0..1]
+    complete()
+    fail(error: String, nextRunAt: Instant)
+    retry()
   }
 
   enum JobType {
@@ -53,11 +66,14 @@ package "Processamento" {
 package "Pagamento" {
   class Payment <<imutável>> {
     id: UUID
-    sourceRail: Rail
-    destinationRail: Rail
+    /sourceRail: Rail
+    /destinationRail: Rail
     amount: Money
     expiresAt: Instant
+    createdAt: Instant
     /status: PaymentStatus
+    «create» Payment(id: UUID, merchant: Merchant, amount: Money, expiresAt: Instant, charge: Charge, payout: Payout)
+    placeHold(hold: Hold)
   }
 
   enum PaymentStatus {
@@ -70,24 +86,30 @@ package "Pagamento" {
     FAILED
   }
 
+  enum Rail {
+    PIX
+    ETHEREUM
+  }
+
+  abstract class Charge <<imutável>>
   class PixCharge <<imutável>> {
     txid: String
     brCode: String
   }
-
-  class PixPayout <<imutável>> {
-    keyId: UUID
-  }
-
   class EthereumCharge <<imutável>> {
     onchainId: Bytes32
     amount: Money
   }
 
+  abstract class Payout <<imutável>>
+  class PixPayout <<imutável>> {
+    keyId: UUID
+  }
   class EthereumPayout <<imutável>> {
     walletId: UUID
   }
 
+  abstract class Hold <<imutável>>
   class EthereumHold <<imutável>> {
     releaseAt: Instant
   }
@@ -95,38 +117,14 @@ package "Pagamento" {
 
 package "Livro-razão" {
   class JournalEntry <<imutável>> {
-    source: EntrySource
+    id: UUID
     occurredAt: Instant
+    «create» JournalEntry(payment: Payment, occurredAt: Instant, detail: EntryDetail, postings: Posting[2..*])
   }
 
   class Posting <<imutável>> {
     account: LedgerAccount
     amount: Money
-  }
-
-  class PixTransfer <<imutável>> {
-    kind: PixTransferKind
-    endToEndId: String
-    occurredAt: Instant
-  }
-
-  class EthereumTransaction <<imutável>> {
-    kind: EthereumTransactionKind
-    txHash: Bytes32
-    logIndex: int
-    occurredAt: Instant
-  }
-
-  class Conversion <<imutável>> {
-    provider: ConversionProvider
-    providerOrderId: String
-    occurredAt: Instant
-  }
-
-  enum EntrySource {
-    PIX
-    ETHEREUM
-    CONVERSION
   }
 
   enum LedgerAccount {
@@ -136,6 +134,24 @@ package "Livro-razão" {
     ESCROW
     CONVERSION_PROVIDER
     RECOVERY
+  }
+
+  abstract class EntryDetail <<imutável>>
+
+  class PixTransfer <<imutável>> {
+    kind: PixTransferKind
+    endToEndId: String
+  }
+
+  class EthereumTransaction <<imutável>> {
+    kind: EthereumTransactionKind
+    txHash: Bytes32
+    logIndex: int
+  }
+
+  class Conversion <<imutável>> {
+    provider: ConversionProviderType
+    providerOrderId: String
   }
 
   enum PixTransferKind {
@@ -154,12 +170,19 @@ package "Livro-razão" {
     REFUNDED
     RECOVERED
   }
+
+  enum ConversionProviderType {
+    MOCK
+  }
 }
 
 package "MED" {
   class Med <<imutável>> {
+    id: UUID
     infractionId: String
     openedAt: Instant
+    «create» Med(payment: Payment, infractionId: String, openedAt: Instant)
+    record(status: MedStatus, occurredAt: Instant): MedEvent
   }
 
   class MedEvent <<imutável>> {
@@ -186,39 +209,49 @@ package "Tipos comuns" {
     BRL
     ETH
   }
-
-  enum Rail {
-    PIX
-    ETHEREUM
-  }
 }
 
 ' Associações
-IdentityStoreNode "1" -down- "0..*" Merchant : dados pessoais em
-Merchant "1" -down- "0..*" Payment
-Job "0..*" -down- "1" Payment
-Payment *-down- "0..1" PixCharge
-Payment *-down- "0..1" PixPayout
-Payment *-down- "0..1" EthereumCharge
-Payment *-down- "0..1" EthereumPayout
-Payment *-down- "0..1" EthereumHold
-Payment *-down- "0..*" JournalEntry
-Payment *-down- "0..*" Med
-JournalEntry *-down- "2..*" Posting
-JournalEntry *-down- "0..1" PixTransfer
-JournalEntry *-down- "0..1" EthereumTransaction
-JournalEntry *-down- "0..1" Conversion
-Med *-down- "1..*" MedEvent
+IdentityStoreNode "1" -- "0..*" Merchant : dados pessoais em
+Merchant "1" -- "0..*" Payment
+Job "0..*" -- "1" Payment : {um por tipo}
+Payment "1" -- "0..*" JournalEntry
+Payment "1" -- "0..*" Med
+
+' Composições
+Payment *-- "1" Charge
+Payment *-- "1" Payout
+Payment *-- "0..1" Hold
+JournalEntry *-- "2..*" Posting
+JournalEntry *-- "1" EntryDetail
+Med *-- "1..*" MedEvent
+
+' Generalizações
+Charge <|-- PixCharge
+Charge <|-- EthereumCharge
+Payout <|-- PixPayout
+Payout <|-- EthereumPayout
+Hold <|-- EthereumHold
+EntryDetail <|-- PixTransfer
+EntryDetail <|-- EthereumTransaction
+EntryDetail <|-- Conversion
+
+
+' Dependências de tipo
+IdentityStoreNode ..> IdentityStoreStatus
+Job ..> JobType
+Job ..> JobStatus
+Payment ..> PaymentStatus
+Payment ..> Rail
+Posting ..> LedgerAccount
+PixTransfer ..> PixTransferKind
+EthereumTransaction ..> EthereumTransactionKind
+Conversion ..> ConversionProviderType
+MedEvent ..> MedStatus
+Money ..> Asset
 
 ' Posicionamento (sem significado no modelo)
-JobType -[hidden]down- Job
-JobStatus -[hidden]down- Job
-Payment -[hidden]right- PaymentStatus
-JournalEntry -[hidden]down- EntrySource
-Posting -[hidden]down- LedgerAccount
-PixTransfer -[hidden]down- PixTransferKind
-EthereumTransaction -[hidden]down- EthereumTransactionKind
-MedEvent -[hidden]down- MedStatus
-Money -[hidden]down- Asset
-Asset -[hidden]right- Rail
+Merchant -[hidden]- Money
+Job -[hidden]- Money
+Hold -[hidden]- JournalEntry
 @enduml
