@@ -32,8 +32,10 @@ UC_PagarEth --> Carteira
 UC_Med --> Banco
 
 note right of UC_Reembolso
-  Quando o pagamento não pode ser concluído
-  (valor errado, cotação vencida, falha na
-  conversão), o valor volta pelo mesmo meio.
+  Quando o pagamento não pode ser
+  concluído (valor errado, pago após o
+  vencimento, cotação vencida, falha
+  na conversão), o valor volta pelo
+  mesmo meio.
 end note
 @enduml

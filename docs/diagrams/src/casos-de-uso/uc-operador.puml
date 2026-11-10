@@ -6,21 +6,31 @@ title Casos de uso — Operador e processos automáticos
 left to right direction
 
 actor "Operador" as O
+actor "IdentityStore" as IDS
+actor "PSP" as PSP
 actor "Tempo\n(tarefas com run_at)" as T
 
 rectangle "Pixeth" {
   usecase "Inscrever IdentityStore" as UC_Inscrever
   usecase "Revogar IdentityStore" as UC_Revogar
+  usecase "Renovar certificado" as UC_Renovar
   usecase "Acompanhar MEDs" as UC_Med
+  usecase "Encerrar MED\n(não procedente)" as UC_Encerrar
   usecase "Recuperar valor retido\n(MED procedente)" as UC_Recuperar
-  usecase "Intervir em pagamento com falha" as UC_Intervir
+  usecase "Registrar MED notificado" as UC_RegistrarMed
+  usecase "Reexecutar pagamento com falha" as UC_Reexecutar
+  usecase "Repetir tarefa após falha temporária" as UC_Repetir
   usecase "Liberar retenções vencidas" as UC_Liberar
 }
 
 O --> UC_Inscrever
 O --> UC_Revogar
 O --> UC_Med
-O --> UC_Intervir
+O --> UC_Reexecutar
+IDS --> UC_Renovar
+PSP --> UC_RegistrarMed
+T --> UC_Repetir
 T --> UC_Liberar
-UC_Recuperar ..> UC_Med : <<extend>>
+UC_Med <.. UC_Recuperar : <<extend>>
+UC_Med <.. UC_Encerrar : <<extend>>
 @enduml

@@ -16,6 +16,8 @@ O pagador só usa o *checkout*. A contestação de um Pix por fraude (MED) acont
 
 ## Operador e processos automáticos
 
+Os processos automáticos não têm agendador próprio: são tarefas com `run_at`, executadas pelo executor de tarefas quando vencem. O PSP notifica os MEDs, e cada IdentityStore renova o próprio certificado.
+
 ![Casos de uso do operador](diagrams/svg/casos-de-uso/uc-operador.svg)
 
 [Fonte](diagrams/src/casos-de-uso/uc-operador.puml)
