@@ -9,43 +9,27 @@ actor "Lojista" as L
 actor "Sistema do lojista" as SL
 
 rectangle "Pixeth" {
-  usecase "Remover destino de recebimento" as UC_Remover
-  usecase "Consultar pagamentos" as UC_Consultar
-  usecase "Inscrever chave Pix" as UC_ChavePix
-  usecase "Verificar titularidade da chave" as UC_Titular
-  usecase "Autenticar-se (com MFA)" as UC_Login
   usecase "Gerar credencial de API" as UC_Credencial
+  usecase "Autenticar-se (com MFA)" as UC_Login
+  usecase "Cadastrar-se" as UC_Cadastro
+  usecase "Remover destino de recebimento" as UC_Remover
   usecase "Inscrever carteira" as UC_Carteira
   usecase "Provar posse da carteira (SIWE)" as UC_Siwe
-  usecase "Cadastrar-se" as UC_Cadastro
+  usecase "Inscrever chave Pix" as UC_ChavePix
   usecase "Criar pagamento" as UC_Criar
+  usecase "Consultar pagamentos" as UC_Consultar
 }
 
-actor "Keycloak" as KC
-actor "PSP" as PSP
-actor "IdentityStore" as IDS
-actor "Provedor de conversão" as PC
-
-L --> UC_Login
-L --> UC_Credencial
-L --> UC_Cadastro
-L --> UC_Remover
-L --> UC_Carteira
-L --> UC_ChavePix
-L --> UC_Criar
-L --> UC_Consultar
-SL --> UC_Criar
-SL --> UC_Consultar
+L -- UC_Credencial
+L -- UC_Login
+L -- UC_Cadastro
+L -- UC_Remover
+L -- UC_Carteira
+L -- UC_ChavePix
+L -- UC_Criar
+L -- UC_Consultar
+SL -- UC_Criar
+SL -- UC_Consultar
 
 UC_Carteira ..> UC_Siwe : <<include>>
-UC_ChavePix ..> UC_Titular : <<include>>
-UC_Login ---> KC
-UC_Credencial ---> KC
-UC_Cadastro ---> IDS
-UC_Remover ---> IDS
-UC_Carteira ---> IDS
-UC_Titular --> IDS
-UC_Titular --> PSP
-UC_Criar ---> PSP
-UC_Criar ---> PC
 @enduml
