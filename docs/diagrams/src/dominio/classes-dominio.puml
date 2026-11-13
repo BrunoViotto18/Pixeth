@@ -44,6 +44,7 @@ package "Processamento" {
     complete()
     fail(error: String, nextRunAt: Instant)
     retry()
+    rearm(runAt: Instant)
   }
 
   enum JobType {
@@ -54,6 +55,7 @@ package "Processamento" {
     RELEASE
     RECOVER
     REFUND
+    RESOLVE_MED
   }
 
   enum JobStatus {
@@ -134,7 +136,6 @@ package "Livro-razão" {
     GATEWAY
     ESCROW
     CONVERSION_PROVIDER
-    RECOVERY
   }
 
   abstract class EntryDetail <<imutável>>
@@ -183,20 +184,17 @@ package "MED" {
     infractionId: String
     openedAt: Instant
     «create» Med(payment: Payment, infractionId: String, openedAt: Instant)
-    record(status: MedStatus, occurredAt: Instant): MedEvent
+    decide(outcome: MedOutcome, decidedAt: Instant): MedDecision
   }
 
-  class MedEvent <<imutável>> {
-    seq: int
-    status: MedStatus
-    occurredAt: Instant
+  class MedDecision <<imutável>> {
+    outcome: MedOutcome
+    decidedAt: Instant
   }
 
-  enum MedStatus {
-    OPEN
-    RECOVERED
-    NOT_RECOVERABLE
-    CLOSED
+  enum MedOutcome {
+    ACCEPTED
+    REJECTED
   }
 }
 
@@ -225,7 +223,7 @@ Payment *-- "1" Payout
 Payment *-- "0..1" Hold
 JournalEntry *-- "2..*" Posting
 JournalEntry *-- "1" EntryDetail
-Med *-- "1..*" MedEvent
+Med *-- "0..1" MedDecision
 
 ' Generalizações
 Charge <|-- PixCharge
@@ -248,7 +246,7 @@ Posting ..> LedgerAccount
 PixTransfer ..> PixTransferKind
 EthereumTransaction ..> EthereumTransactionKind
 Conversion ..> ConversionProviderType
-MedEvent ..> MedStatus
+MedDecision ..> MedOutcome
 Money ..> Asset
 
 ' Posicionamento (sem significado no modelo)

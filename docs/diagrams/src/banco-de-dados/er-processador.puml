@@ -86,6 +86,7 @@ package "Processamento" as g_proc {
     RELEASE
     RECOVER
     REFUND
+    RESOLVE_MED
   }
 
   enum "core.job_status" as e_jstatus {
@@ -102,21 +103,19 @@ package "MED" as g_med {
     * payment_id : uuid <<FK>>
     * infraction_id : text <<UK>>
     * opened_at : timestamptz
+    * created_at : timestamptz
   }
 
-  entity "pix.med_events" as pix_med_events <<imutável>> #EAF3EA {
+  entity "pix.med_decisions" as pix_med_decisions <<imutável>> #EAF3EA {
     * med_id : uuid <<PK, FK>>
-    * seq : int <<PK>>
     --
-    * status : pix.med_status
-    * occurred_at : timestamptz
+    * outcome : pix.med_outcome
+    * decided_at : timestamptz
   }
 
-  enum "pix.med_status" as e_med {
-    OPEN
-    RECOVERED
-    NOT_RECOVERABLE
-    CLOSED
+  enum "pix.med_outcome" as e_med {
+    ACCEPTED
+    REJECTED
   }
 }
 
@@ -224,7 +223,6 @@ package "Livro-razão" as g_ledger {
     GATEWAY
     ESCROW
     CONVERSION_PROVIDER
-    RECOVERY
   }
 
 
@@ -301,7 +299,7 @@ entries ||-down-|{ postings
 entries ||-down-o| eth_transactions
 entries ||-down-o| pix_transfers
 entries ||-down-o| conversions
-pix_meds ||-down-|{ pix_med_events
+pix_meds ||-down-o| pix_med_decisions
 
 ' Posicionamento (sem significado no modelo)
 merchants -[hidden]down- n_part
@@ -313,7 +311,7 @@ v_status -[hidden]down- e_pstatus
 conversions -[hidden]down- e_cprov
 pix_transfers -[hidden]down- e_pix_transfer
 eth_transactions -[hidden]down- e_eth_tx
-pix_med_events -[hidden]down- e_med
+pix_med_decisions -[hidden]down- e_med
 e_rail -[hidden]right- e_asset
 idem -[hidden]down- chain_cursor
 identity_stores -[hidden]down- e_rail
