@@ -10,70 +10,69 @@ skinparam component<<porta>> {
 }
 
 package "Adaptadores de entrada" as g_in {
-  component "API REST\n(lojista e checkout)" as restApi
-  component "Webhooks do PSP" as pspWebhook
   component "Ouvinte da blockchain" as chainListener
+  component "Webhooks do PSP" as pspWebhook
   component "Executor de tarefas" as jobRunner
-  component "Console do operador" as console
+  component "API REST\n(lojista, checkout\ne IdentityStores)" as restApi
 }
 
 package "Núcleo" as g_core {
-  component "Cadastro" <<porta>> as IMerch
-  component "Pagamentos" <<porta>> as IPay
-  component "Operação" <<porta>> as IOps
   component "Avisos de pagamento" <<porta>> as INotif
   component "Execução de tarefas" <<porta>> as ISteps
+  component "Pagamentos" <<porta>> as IPay
+  component "IdentityStores" <<porta>> as IIds
+  component "Cadastro" <<porta>> as IMerch
 
-  component "Lojistas e destinos" as merchants
-  component "Operação\n(MED, falhas, IdentityStores)" as ops
   component "Orquestrador de pagamentos" as orch
   component "Livro-razão" as ledger
+  component "Inscrição e certificados" as enroll
   component "AC da implantação" as pki
+  component "Lojistas e destinos" as merchants
 
-  component "IdentityStore" <<porta>> as IIdentity
-  component "Repositórios" <<porta>> as IRepo
-  component "JobQueue" <<porta>> as IJobs
   component "PaymentRail" <<porta>> as IRail
   component "ConversionProvider" <<porta>> as IConv
+  component "JobQueue" <<porta>> as IJobs
+  component "Repositórios" <<porta>> as IRepo
+  component "IdentityStore" <<porta>> as IIdentity
 }
 
 package "Adaptadores de saída" as g_out {
-  component "Cliente IdentityStore\n(mTLS)" as idClient
-  component "PostgreSQL" as pg
   component "Trilho Ethereum\n(Web3j + PixethGateway)" as ethRail
   component "Trilho Pix\n(API Pix — Efí)" as pixRail
   component "Conversão simulada" as convMock
   component "Tabela de tarefas" as jobTable
+  component "PostgreSQL" as pg
+  component "Cliente IdentityStore\n(mTLS)" as idClient
 }
 
-restApi --> IMerch
-restApi --> IPay
-pspWebhook --> INotif
 chainListener --> INotif
+pspWebhook --> INotif
 jobRunner --> ISteps
-console --> IOps
+restApi --> IPay
+restApi --> IIds
+restApi --> IMerch
 
-IMerch --> merchants
-IPay --> orch
-IOps --> ops
 INotif --> orch
 ISteps --> orch
+IPay --> orch
+IIds --> enroll
+IMerch --> merchants
 
-ops --> pki
 orch --> ledger
+enroll --> pki
 
-merchants ...> IIdentity
-merchants ...> IRepo
-ledger ..> IRepo
-ops ...> IJobs
-orch ...> IJobs
 orch ...> IRail
 orch ...> IConv
+orch ...> IJobs
+ledger ..> IRepo
+enroll ...> IRepo
+merchants ...> IRepo
+merchants ...> IIdentity
 
-IIdentity <|.. idClient
-IRepo <|.. pg
-IRail <|.. pixRail
 IRail <|.. ethRail
+IRail <|.. pixRail
 IConv <|.. convMock
 IJobs <|.. jobTable
+IRepo <|.. pg
+IIdentity <|.. idClient
 @enduml

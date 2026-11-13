@@ -1,69 +1,32 @@
 @startuml portas-e-adaptadores
 !include ../_estilo.iuml
 
-title Portas de saída e implementações
+title Portas de saída e adaptadores — trilhos, conversão, identidade e tarefas
 
 hide empty members
 skinparam wrapWidth 720
 
-skinparam class<<futuro>> {
-  BackgroundColor #FFFFFF
-  BorderColor #A0A0A0
-  FontColor #8A8A8A
-}
 
-left to right direction
-
-package "Conversão" {
-  interface ConversionProvider {
-    +quote(source: Asset, target: Asset, amount: Money): Quote
-    +createOrder(quote: Quote, paymentId: UUID): ConversionOrder
-    +getOrder(orderId: String): ConversionOrder
-  }
-  class ConversionOrder <<record>> {
-    orderId: String
-    instruction: PaymentInstruction
-    delivered: Money
-  }
-  class MockConversionProvider
-  class HttpConversionProvider <<futuro>>
-}
-
-package "Tarefas" {
-  interface JobQueue {
-    +enqueue(type: JobType, paymentId: UUID, runAt: Instant)
-  }
-  enum JobType {
-    CONFIRM_PAYMENT
-    FUND_CONVERSION
-    CONVERT
-    PAY_OUT
-    RELEASE
-    RECOVER
-    REFUND
-  }
-  class OutboxJobQueue
-}
 
 package "Trilhos" {
   interface PaymentRail {
-    +id(): Rail
+    +rail(): Rail
     +capabilities(): RailCapabilities
-    +createCharge(payment: Payment): Charge
+    +createCharge(paymentId: UUID, amount: Money, expiresAt: Instant): Charge
     +confirmPayment(payment: Payment, externalId: String): RailResult
-    +fundConversion(payment: Payment, instruction: PaymentInstruction): RailResult
-    +payOut(payment: Payment, destinationId: UUID): RailResult
-    +refund(payment: Payment): RailResult
+    +fundConversion(payment: Payment, order: ConversionOrder): RailResult
+    +payOut(payment: Payment): RailResult
+    +refund(payment: Payment, amount: Money): RailResult
   }
   interface HoldingRail {
     +release(payment: Payment): RailResult
-    +recover(payment: Payment, medRef: String): RailResult
+    +freeze(payment: Payment): RailResult
+    +unfreeze(payment: Payment): RailResult
+    +recover(payment: Payment, amount: Money, order: ConversionOrder): RailResult
   }
   class RailCapabilities <<record>> {
     reversible: boolean
     supportsPayout: boolean
-    supportsHold: boolean
-    typicalFinality: Duration
   }
   class PixRail
   interface PixPspClient {
@@ -78,61 +41,27 @@ package "Trilhos" {
     -chainId: long
   }
   class PixethGatewayContract <<Web3j>> {
-    +hold(paymentId, receiver, releaseAt, value)
     +release(paymentId)
-    +recover(paymentId, medRef)
-    +fundConversion(paymentId)
+    +freeze(paymentId)
+    +unfreeze(paymentId)
+    +recover(paymentId, amount, to)
+    +fundConversion(paymentId, to)
     +refund(paymentId)
   }
-  class BitcoinRail <<futuro>>
-  class BoletoRail <<futuro>>
 }
 
-package "Repositórios" {
-  interface PaymentRepository {
-    +insert(payment: Payment)
-    +findById(paymentId: UUID): Optional<Payment>
-    +findByCharge(rail: Rail, chargeRef: String): Optional<Payment>
-    +status(paymentId: UUID): PaymentStatus
-    +search(status: PaymentStatus, medStatus: MedStatus, cursor: String): Page<Payment>
+package "Conversão" {
+  interface ConversionProvider {
+    +quote(source: Asset, target: Asset, amount: Money): Quote
+    +createOrder(quote: Quote, paymentId: UUID): ConversionOrder
+    +getOrder(orderId: String): ConversionOrder
   }
-  interface LedgerRepository {
-    +append(entry: JournalEntry)
-    +entries(paymentId: UUID): List<JournalEntry>
+  class ConversionOrder <<record>> {
+    orderId: String
+    instruction: PaymentInstruction
+    delivered: Money
   }
-  interface MedRepository {
-    +insert(med: Med)
-    +appendEvent(medId: UUID, event: MedEvent)
-    +findByPayment(paymentId: UUID): List<Med>
-  }
-  interface MerchantRepository {
-    +insert(merchant: Merchant)
-    +findById(merchantId: UUID): Optional<Merchant>
-    +findBySubject(subjectId: String): Optional<Merchant>
-  }
-  interface IdentityStoreNodeRepository {
-    +insert(node: IdentityStoreNode)
-    +findById(nodeId: UUID): Optional<IdentityStoreNode>
-    +updateCertificate(nodeId: UUID, serial: String, notAfter: Instant)
-    +updateStatus(nodeId: UUID, status: NodeStatus)
-  }
-  interface IdempotencyKeyRepository {
-    +find(scopeId: UUID, key: String): Optional<IdempotencyKey>
-    +insert(record: IdempotencyKey)
-  }
-  class PostgresPaymentRepository
-  class PostgresLedgerRepository
-  class PostgresMedRepository
-  class PostgresMerchantRepository
-  class PostgresIdentityStoreNodeRepository
-  class PostgresIdempotencyKeyRepository
-  class IdempotencyKey <<record>> {
-    scopeId: UUID
-    key: String
-    requestHash: String
-    resourceId: UUID
-    expiresAt: Instant
-  }
+  class MockConversionProvider
 }
 
 package "Identidade" {
@@ -142,47 +71,51 @@ package "Identidade" {
     +addPixKey(ownerId: UUID, key: PixKey): MaskedRef
     +listPixKeys(ownerId: UUID): List<MaskedRef>
     +getPixKey(keyId: UUID): PixKey
+    +pixKeyBelongsTo(keyId: UUID, ownerId: UUID): boolean
     +deletePixKey(keyId: UUID)
     +addEthereumWallet(ownerId: UUID, wallet: EthereumWallet): MaskedRef
     +listEthereumWallets(ownerId: UUID): List<MaskedRef>
     +getEthereumWallet(walletId: UUID): EthereumWallet
+    +walletBelongsTo(walletId: UUID, ownerId: UUID): boolean
     +deleteEthereumWallet(walletId: UUID)
   }
   class MtlsIdentityStoreClient
 }
 
-PaymentRail ..> RailCapabilities
+package "Tarefas" {
+  interface JobQueue {
+    +enqueue(type: JobType, paymentId: UUID, runAt: Instant)
+    +rearm(type: JobType, paymentId: UUID, runAt: Instant)
+  }
+  enum JobType {
+    CONFIRM_PAYMENT
+    FUND_CONVERSION
+    CONVERT
+    PAY_OUT
+    RELEASE
+    RECOVER
+    REFUND
+    RESOLVE_MED
+  }
+  class OutboxJobQueue
+}
+
 PaymentRail <|-- HoldingRail
+PaymentRail ..> RailCapabilities
 PaymentRail <|.. PixRail
 HoldingRail <|.. EthereumRail
-ConversionProvider ..> ConversionOrder
-JobQueue ..> JobType
-PaymentRail <|.. BitcoinRail
-PaymentRail <|.. BoletoRail
 PixRail --> PixPspClient
 PixPspClient <|.. EfiPixClient
 EthereumRail --> PixethGatewayContract
+ConversionProvider ..> ConversionOrder
 ConversionProvider <|.. MockConversionProvider
-ConversionProvider <|.. HttpConversionProvider
 IdentityStore <|.. MtlsIdentityStoreClient
+JobQueue ..> JobType
 JobQueue <|.. OutboxJobQueue
-IdempotencyKeyRepository ..> IdempotencyKey
-PaymentRepository <|.. PostgresPaymentRepository
-LedgerRepository <|.. PostgresLedgerRepository
-MedRepository <|.. PostgresMedRepository
-MerchantRepository <|.. PostgresMerchantRepository
-IdentityStoreNodeRepository <|.. PostgresIdentityStoreNodeRepository
-IdempotencyKeyRepository <|.. PostgresIdempotencyKeyRepository
 
-note right of OutboxJobQueue
-  enqueue() só insere na tabela jobs, na mesma
-  transação do fato que gerou o passo; os
-  workers executam depois.
-end note
 
-note right of MockConversionProvider
-  Simula cotação e conversão com uma taxa
-  configurável e uma carteira de teste na
-  Sepolia, que deposita o ETH via hold().
-end note
+' Posicionamento
+PixethGatewayContract -[hidden]down- ConversionProvider
+EfiPixClient -[hidden]down- JobQueue
+OutboxJobQueue -[hidden]down- IdentityStore
 @enduml

@@ -1,0 +1,57 @@
+@startuml portas-repositorios
+!include ../_estilo.iuml
+
+title Portas de saída — repositórios
+
+hide empty members
+skinparam wrapWidth 720
+
+left to right direction
+
+interface PaymentRepository {
+  +insert(payment: Payment, idempotencyKey: IdempotencyKey)
+  +addHold(paymentId: UUID, hold: Hold)
+  +findById(paymentId: UUID): Optional<Payment>
+  +findByCharge(rail: Rail, chargeRef: String): Optional<Payment>
+  +status(paymentId: UUID): PaymentStatus
+}
+interface LedgerRepository {
+  +append(entry: JournalEntry)
+  +entries(paymentId: UUID): List<JournalEntry>
+}
+interface MedRepository {
+  +insert(med: Med)
+  +insertDecision(medId: UUID, decision: MedDecision)
+  +findByPayment(paymentId: UUID): List<Med>
+}
+interface MerchantRepository {
+  +insert(merchant: Merchant)
+  +findById(merchantId: UUID): Optional<Merchant>
+  +findBySubject(subjectId: String): Optional<Merchant>
+}
+interface IdentityStoreNodeRepository {
+  +insert(node: IdentityStoreNode)
+  +findById(nodeId: UUID): Optional<IdentityStoreNode>
+  +updateCertificate(nodeId: UUID, serial: String, notAfter: Instant)
+  +updateStatus(nodeId: UUID, status: IdentityStoreStatus)
+}
+interface IdempotencyKeyRepository {
+  +find(scopeId: UUID, key: String): Optional<IdempotencyKey>
+  +insert(record: IdempotencyKey)
+}
+class IdempotencyKey <<record>> {
+  scopeId: UUID
+  key: String
+  requestHash: String
+  resourceId: UUID
+  expiresAt: Instant
+}
+
+IdempotencyKeyRepository ..> IdempotencyKey
+PaymentRepository ..> IdempotencyKey
+
+note as n_pg
+  Cada repositório tem uma implementação
+  em PostgreSQL (Postgres…Repository).
+end note
+@enduml
