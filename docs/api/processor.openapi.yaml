@@ -1,24 +1,31 @@
 openapi: 3.1.0
 info:
   title: Pixeth — API do processador
-  version: 0.3.0
+  version: 0.4.0
   summary: Gateway de pagamentos Pix ⇄ Ethereum com arquitetura Zero Trust.
   description: |
     Públicos atendidos:
 
     - **Sistema do lojista:** cria e consulta pagamentos com OAuth 2.0 *client credentials*
       (Keycloak). O *token* traz a *claim* `merchant_id`.
-    - **Aplicação web:** lojistas e operadores autenticados por OIDC (Keycloak, com MFA).
+    - **Aplicação web:** lojistas autenticados por OIDC (Keycloak, com MFA); o operador só
+      inscreve e revoga IdentityStores.
     - **Checkout:** página pública do pagador, identificada pelo id do pagamento (UUID aleatório).
-    - **Máquinas:** IdentityStores (renovação de certificado) e PSP (*webhooks*), via mTLS.
+    - **Máquinas:** IdentityStores (renovação de certificado) e PSP (*webhooks* de Pix e avisos
+      de MED), via mTLS.
 
     Regras gerais:
 
     - Valores são *strings* decimais na precisão do ativo (`"100.00"` BRL, `"0.0058"` ETH).
+    - O valor de um pagamento (`amount`) pode estar em qualquer ativo, em qualquer combinação de
+      trilhos. Quando o ativo não é o do trilho de origem, o valor que o pagador paga
+      (`amountToPay`) é cotado na criação.
     - `POST /v1/payments` exige `Idempotency-Key`: repetir com a mesma chave e o mesmo corpo
       devolve o pagamento existente; com outro corpo, `422`.
     - Erros seguem *Problem Details* (RFC 9457).
     - O processador não guarda estado em memória: qualquer réplica atende qualquer requisição.
+    - Depois de criado, o pagamento segue sozinho: confirmação, conversão, retenção, liberação e
+      tratamento de MED são tarefas automáticas, sem ação de um operador.
 servers:
   - url: https://api.pixeth.example
     description: Ambiente do TCC (PSP em homologação e rede Sepolia)
@@ -28,7 +35,7 @@ tags:
   - name: Lojistas
   - name: Integração
   - name: PSP
-  - name: Administração
+  - name: IdentityStores
 
 security:
   - merchantClient: []
@@ -40,8 +47,10 @@ paths:
       operationId: createPayment
       summary: Criar pagamento
       description: |
-        Síncrono e idempotente. Origem `PIX`: cria a cobrança no PSP e devolve o BR Code.
-        Origem `ETHEREUM`: obtém a cotação e devolve o valor em ETH e os dados do contrato.
+        Síncrono e idempotente. Confere no IdentityStore se o destino pertence ao lojista e, se
+        `amount` não estiver no ativo do trilho de origem, obtém a cotação do valor a pagar.
+        Origem `PIX`: cria a cobrança no PSP e devolve o BR Code. Origem `ETHEREUM`: devolve o
+        valor em ETH e os dados do contrato.
       security:
         - merchantClient: [payments:write]
         - userBearer: []
@@ -70,6 +79,13 @@ paths:
                   destinationId: 3a9f0c4e-6b21-4d7a-8c55-1e2b3c4d5e6f
                   amount: { value: '100.00', asset: BRL }
                   description: Pedido 1235
+              pixParaEthereumComPrecoEmEth:
+                value:
+                  sourceRail: PIX
+                  destinationRail: ETHEREUM
+                  destinationId: 7c1e5d2a-0d6b-4f0e-9a3b-2f4c8e1d9b10
+                  amount: { value: '0.0058', asset: ETH }
+                  description: Pedido 1236
       responses:
         '201':
           description: Pagamento criado
@@ -437,7 +453,7 @@ paths:
 
   /v1/certificates/renew:
     post:
-      tags: [Administração]
+      tags: [IdentityStores]
       operationId: renew
       summary: IdentityStore renova o próprio certificado usando o certificado atual
       security:
@@ -504,8 +520,14 @@ paths:
     post:
       tags: [PSP]
       operationId: receiveInfractionWebhook
-      summary: Notificação de MED (formato próprio de cada PSP)
-      description: Insere um registro em `pix.meds` e um evento `OPEN` em `pix.med_events`, suspendendo a liberação.
+      summary: Aviso de MED — abertura ou decisão (formato próprio de cada PSP)
+      description: |
+        O MED não faz parte da API Pix padrão: cada PSP avisa do seu jeito, e o adaptador do PSP
+        traduz o aviso. Uma abertura insere um registro em `pix.meds`; uma decisão insere um
+        registro em `pix.med_decisions` (`ACCEPTED` ou `REJECTED`). Nos dois casos a tarefa
+        `RESOLVE_MED` do pagamento é reativada: ela congela a retenção enquanto houver MED sem
+        decisão, descongela quando todos forem rejeitados e, se algum for aceito, recupera o que
+        ainda estiver retido e devolve ao pagador. Responde 200 também para duplicados.
       security:
         - mtls: []
       requestBody:
@@ -516,75 +538,9 @@ paths:
       responses:
         '200': { description: Recebido }
 
-  /v1/admin/payments:
-    get:
-      tags: [Administração]
-      operationId: adminListPayments
-      summary: Listar pagamentos (por exemplo, com MED aberto ou em FAILED)
-      security:
-        - operatorBearer: []
-      parameters:
-        - name: status
-          in: query
-          schema: { $ref: '#/components/schemas/PaymentStatus' }
-        - name: medStatus
-          in: query
-          schema: { $ref: '#/components/schemas/MedStatus' }
-        - name: cursor
-          in: query
-          schema: { type: string }
-      responses:
-        '200':
-          description: Página de pagamentos
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PaymentPage' }
-
-  /v1/admin/payments/{paymentId}/med/recover:
-    parameters:
-      - $ref: '#/components/parameters/PaymentId'
-    post:
-      tags: [Administração]
-      operationId: recoverHeldPayment
-      summary: MED procedente — recuperar o valor retido no contrato (recover)
-      description: Só é possível antes de `holdReleaseAt`; o valor vai para o `recoveryAddress`.
-      security:
-        - operatorBearer: []
-      responses:
-        '202': { description: Recuperação enviada à rede }
-        '409':
-          description: Valor já liberado ao lojista
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-
-  /v1/admin/payments/{paymentId}/med/close:
-    parameters:
-      - $ref: '#/components/parameters/PaymentId'
-    post:
-      tags: [Administração]
-      operationId: closeMed
-      summary: MED não procedente — encerrar (a liberação volta a valer)
-      security:
-        - operatorBearer: []
-      responses:
-        '204': { description: Encerrado }
-
-  /v1/admin/payments/{paymentId}/retry:
-    parameters:
-      - $ref: '#/components/parameters/PaymentId'
-    post:
-      tags: [Administração]
-      operationId: retryPayment
-      summary: Reexecutar a última tarefa de um pagamento em FAILED
-      security:
-        - operatorBearer: []
-      responses:
-        '202': { description: Tarefa reagendada }
-
   /v1/admin/identity-stores:
     post:
-      tags: [Administração]
+      tags: [IdentityStores]
       operationId: createIdentityStore
       summary: Inscrever um IdentityStore (manual, pelo operador)
       description: |
@@ -622,7 +578,7 @@ paths:
         required: true
         schema: { type: string, format: uuid }
     post:
-      tags: [Administração]
+      tags: [IdentityStores]
       operationId: revokeIdentityStore
       summary: Revogar IdentityStore
       security:
@@ -646,7 +602,7 @@ components:
     operatorBearer:
       type: openIdConnect
       openIdConnectUrl: https://auth.pixeth.example/realms/pixeth/.well-known/openid-configuration
-      description: Usuários com o papel operator; MFA obrigatório.
+      description: Usuários com o papel operator; MFA obrigatório. Usado só para inscrever e revogar IdentityStores.
     mtls:
       type: mutualTLS
       description: Certificado do PSP ou de um IdentityStore inscrito.
@@ -704,11 +660,19 @@ components:
     PaymentStatus:
       type: string
       enum: [AWAITING_PAYMENT, PROCESSING, COMPLETED, EXPIRED, REFUNDED, REVERSED, FAILED]
-      description: Visão geral do pagamento, igual para qualquer trilho; o detalhe de cada passo está em `entries`.
+      description: |
+        Visão geral do pagamento, igual para qualquer trilho; o detalhe de cada passo está em
+        `entries`. O estado não é gravado: é derivado do livro-razão, das tarefas e do prazo.
+        `REVERSED` indica devolução ao pagador por um MED aceito; `FAILED`, que as tentativas
+        automáticas de uma tarefa se esgotaram.
 
     MedStatus:
       type: string
-      enum: [OPEN, RECOVERED, NOT_RECOVERABLE, CLOSED]
+      enum: [OPEN, ACCEPTED, REJECTED]
+      description: |
+        Situação combinada dos MEDs de um pagamento, derivada de `pix.meds` e
+        `pix.med_decisions`: `ACCEPTED` se algum MED foi aceito; `OPEN` se nenhum foi aceito e
+        algum ainda não tem decisão; `REJECTED` se todos foram rejeitados.
 
     PaymentCreateRequest:
       type: object
@@ -728,7 +692,9 @@ components:
             Pix (PIX). Obrigatório; não há destino padrão.
         amount:
           $ref: '#/components/schemas/Money'
-          description: Valor do pagamento, em qualquer ativo suportado.
+          description: |
+            Valor do pagamento (o preço), em qualquer ativo suportado. Se o ativo não for o do
+            trilho de origem, o valor a pagar é cotado na criação.
         description:
           type: string
           maxLength: 140
@@ -736,12 +702,17 @@ components:
 
     Payment:
       type: object
-      required: [id, sourceRail, destinationRail, amount, status, checkoutUrl, expiresAt, createdAt]
+      required: [id, sourceRail, destinationRail, amount, amountToPay, status, checkoutUrl, expiresAt, createdAt]
       properties:
         id: { type: string, format: uuid }
         sourceRail: { $ref: '#/components/schemas/Rail' }
         destinationRail: { $ref: '#/components/schemas/Rail' }
         amount: { $ref: '#/components/schemas/Money' }
+        amountToPay:
+          $ref: '#/components/schemas/Money'
+          description: |
+            Valor que o pagador paga, no ativo do trilho de origem: o próprio `amount` ou o valor
+            cotado na criação.
         status: { $ref: '#/components/schemas/PaymentStatus' }
         destinationId: { type: string, format: uuid }
         checkoutUrl: { type: string, format: uri }
@@ -755,13 +726,15 @@ components:
             chainId: { type: integer }
             contractAddress: { $ref: '#/components/schemas/EthereumAddress' }
             paymentIdBytes32: { type: string, pattern: '^0x[0-9a-fA-F]{64}$' }
-            amountToPay: { $ref: '#/components/schemas/Money' }
         holdReleaseAt:
           type: [string, 'null']
           format: date-time
-          description: Quando destinationRail = ETHEREUM, quando o valor retido será liberado ao lojista.
+          description: |
+            Presente quando o pagamento tem retenção (origem reversível e destino que retém; hoje,
+            Pix → Ethereum): data prevista para a liberação ao lojista. Um MED sem decisão congela
+            a retenção, e a liberação é adiada pelo tempo em que ela ficou congelada.
         medStatus:
-          description: Situação do MED, derivada do evento mais recente; null quando não há MED.
+          description: Situação combinada dos MEDs do pagamento; null quando não há MED.
           oneOf:
             - $ref: '#/components/schemas/MedStatus'
             - type: 'null'
@@ -792,7 +765,7 @@ components:
         kind:
           type: [string, 'null']
           description: 'Tipo do evento no trilho (pix.transfer_kind ou ethereum.transaction_kind); null em CONVERSION'
-          examples: [RECEIVED, PAID, HELD]
+          examples: [RECEIVED, PAID, HELD, MED_RETURNED]
         externalId:
           type: string
           description: 'endToEndId ou id da devolução (PIX), txHash (ETHEREUM) ou id do pedido no provedor (CONVERSION)'
@@ -801,13 +774,15 @@ components:
 
     Checkout:
       type: object
-      required: [status, sourceRail, amount, merchantDisplayName, expiresAt]
+      required: [status, sourceRail, amount, amountToPay, merchantDisplayName, expiresAt]
       properties:
         status:
           type: string
-          enum: [AWAITING_PAYMENT, PROCESSING, COMPLETED, EXPIRED, REFUNDED]
+          enum: [AWAITING_PAYMENT, PROCESSING, COMPLETED, EXPIRED, REFUNDED, REVERSED]
+          description: Como em `PaymentStatus`; um pagamento em `FAILED` aparece como `PROCESSING`.
         sourceRail: { $ref: '#/components/schemas/Rail' }
         amount: { $ref: '#/components/schemas/Money' }
+        amountToPay: { $ref: '#/components/schemas/Money' }
         merchantDisplayName: { type: string }
         description: { type: string }
         pixCopiaECola: { type: string }
@@ -817,7 +792,6 @@ components:
             chainId: { type: integer }
             contractAddress: { $ref: '#/components/schemas/EthereumAddress' }
             paymentIdBytes32: { type: string }
-            amountToPay: { $ref: '#/components/schemas/Money' }
         expiresAt: { type: string, format: date-time }
 
     Merchant:

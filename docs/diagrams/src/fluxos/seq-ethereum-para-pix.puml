@@ -22,10 +22,12 @@ participant "PSP (API Pix)" as PSP
 == 1. Criação (síncrona e idempotente) ==
 SL -> API : POST /v1/payments {amount: "100.00 BRL",\nsourceRail: ETHEREUM, destinationRail: PIX,\ndestinationId: keyId}\n— Bearer + Idempotency-Key
 API -> IDS : GET /v1/rails/pix/keys/{keyId}?view=masked — mTLS\n(existe e pertence ao owner_id do lojista?)
-API -> PC : cotação ETH → BRL
-PC --> API : 0,0058 ETH, válida por 15 min
-API -> DB : BEGIN\nINSERT payments (expires_at = validade da cotação)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (valor em wei)\nINSERT pix.payouts (key_id)\nCOMMIT
-API --> SL : 201 {paymentId, checkoutUrl, amount: "0.0058 ETH"}
+opt amount em BRL
+  API -> PC : cotação: R$ 100,00 → ETH
+  PC --> API : 0,0058 ETH a pagar, válida por 15 min
+end
+API -> DB : BEGIN\nINSERT payments (expires_at = agora + 15 min,\n  a validade da cotação)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT ethereum.charges (onchain_id, valor a pagar)\nINSERT pix.payouts (key_id)\nCOMMIT
+API --> SL : 201 {paymentId, checkoutUrl,\namountToPay: "0.0058 ETH", ethereum}
 
 == 2. Pagamento ==
 SL -> P : redireciona para o checkout
@@ -44,14 +46,20 @@ end
 W -> DB : BEGIN\nlançamento + ethereum.transactions (PAID, txHash)\nCOMMIT
 
 == 4. Validação ==
-alt valor diferente da cotação ou pagamento expirado
+alt valor diferente do valor a pagar ou pagamento expirado
   W -> GW : refund(paymentId) → payer
   W -> DB : lançamento + ethereum.transactions\n(REFUNDED, txHash)
 else valor correto
-  W -> GW : fundConversion(paymentId) → conversionAddress
-  W -> PC : vender o ETH recebido
+  W -> PC : criar pedido: 0,0058 ETH → BRL\n(referência = paymentId)
+  PC --> W : id do pedido + endereço de depósito
+  W -> GW : fundConversion(paymentId, endereço de depósito)
+  note right
+    O contrato só envia a endereços da
+    lista de provedores de conversão.
+  end note
+  W -> DB : lançamento + ethereum.transactions (CONVERSION_FUNDED, txHash)
   PC --> W : BRL disponível na conta do Pixeth\n(id do pedido)
-  W -> DB : lançamento + ethereum.transactions (CONVERSION_FUNDED, txHash)\nlançamento + core.conversions (id do pedido)
+  W -> DB : lançamento + core.conversions (id do pedido)
 
   group 5. Pagamento ao lojista
     W -> IDS : GET /v1/rails/pix/keys/{key_id} — mTLS
@@ -61,4 +69,8 @@ else valor correto
     W -> DB : lançamento + pix.transfers\n(PAID_OUT, endToEndId)
   end
 end
+note over SL, API
+  A criação, no nível das classes, está em
+  seq-criar-pagamento-eth-pix.
+end note
 @enduml

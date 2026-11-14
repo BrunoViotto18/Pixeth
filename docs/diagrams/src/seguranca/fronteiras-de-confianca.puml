@@ -19,7 +19,7 @@ rectangle "Processador (centralizado)" as ZApp #F4F7FB {
   node "Workers" as tWorkers
   node "Keycloak" as tKc
   database "PostgreSQL" as tDb
-  node "Kubernetes Secrets\n(chave da AC, credenciais do PSP,\nchave do operator)" as tSecrets
+  node "Kubernetes Secrets\n(chave da AC, credenciais do PSP,\nchave operator do contrato)" as tSecrets
 }
 
 rectangle "IdentityStore (descentralizado)" as ZIds #FBF7F0 {
@@ -44,11 +44,15 @@ tWorkers --> tPSP : [7] mTLS + OAuth 2.0
 tApi --> tIds : [8] mTLS mútuo (AC do processador)
 tWorkers --> tIds
 tWorkers --> tRpc : [9] JSON-RPC sobre TLS
-tWorkers --> tContract : [10] operator só aciona;\no contrato fixa os destinos
+tWorkers --> tContract : [10] a chave operator só aciona;\no contrato restringe os destinos
 
 note bottom of ZChain
-  Mesmo com o back-end comprometido, o contrato
-  não libera antes de releaseAt e nunca envia
-  para um destino escolhido pelo chamador.
+  Mesmo com o back-end comprometido,
+  o contrato não libera antes de
+  releaseAt nem com a retenção
+  congelada, e só envia ao pagador,
+  à carteira fixada na retenção ou
+  a um endereço da lista de
+  provedores de conversão.
 end note
 @enduml

@@ -15,21 +15,27 @@ participant ":ConversionProvider" as CONV
 participant "PixRail :\nPaymentRail" as RAIL
 participant ":PaymentRepository" as REPO
 
-SL -> API : POST /v1/payments\n{price, PIX → ETHEREUM, walletId}\n+ Idempotency-Key
-API -> ORQ : createPayment(merchant, price,\nPIX, ETHEREUM, walletId, idempotencyKey)
+SL -> API : POST /v1/payments\n{amount, PIX → ETHEREUM, walletId}\n+ Idempotency-Key
+API -> ORQ : createPayment(merchant, amount,\nPIX, ETHEREUM, walletId, idempotencyKey)
 ORQ -> IDS : walletBelongsTo(walletId, merchant.ownerId)
 IDS --> ORQ : true
-opt price em ETH
-  ORQ -> CONV : quote(ETH, BRL, price)
+opt amount em ETH
+  ORQ -> CONV : quote(ETH, BRL, amount)
   CONV --> ORQ : quote (valor em BRL)
 end
-ORQ -> RAIL : createCharge(paymentId, amount, expiresAt)
+note right of ORQ
+  chargeAmount é o valor que o
+  pagador paga, no ativo do trilho
+  de origem: o próprio amount
+  ou o valor cotado.
+end note
+ORQ -> RAIL : createCharge(paymentId, chargeAmount, expiresAt)
 RAIL --> ORQ : charge : PixCharge
 create PO
 ORQ -> PO : «create»(walletId)
 create PAY
-ORQ -> PAY : «create»(paymentId, merchant, price,\nexpiresAt, charge, payout)
+ORQ -> PAY : «create»(paymentId, merchant, amount,\nexpiresAt, charge, payout)
 ORQ -> REPO : insert(payment, idempotencyKey)
 ORQ --> API : payment
-API --> SL : 201 {paymentId, checkoutUrl, brCode}
+API --> SL : 201 {paymentId, checkoutUrl,\namountToPay, pixCopiaECola}
 @enduml

@@ -12,45 +12,71 @@ box "Pixeth" #F4F7FB
   database "Banco" as DB
   participant "Workers" as W
 end box
-actor "Operador" as O
+participant "Provedor de conversão\n(simulado)" as PC
 participant "PixethGateway\n(Sepolia)" as GW
-participant "Sistema do lojista" as SL
 
 == Liberação (caminho normal) ==
 group tarefa RELEASE (run_at = release_at), em qualquer réplica
-  W -> DB : pega a tarefa (FOR UPDATE SKIP LOCKED)\ne confere que não há MED aberto
+  W -> DB : pega a tarefa (SKIP LOCKED) e\nconfere que não há MED sem decisão
   W -> GW : release(paymentId)
-  GW -> GW : require(block.timestamp >= releaseAt)\nenvia ao receiver (carteira do lojista)
+  GW -> GW : require(releaseAt já passou e\nretenção não congelada)\nenvia à carteira do lojista
   GW --> W : evento Released
   W -> DB : lançamento + ethereum.transactions\n(RELEASED, txHash)
 end
 
-== MED durante a retenção ==
+== MED aberto durante a retenção ==
 P -> PSP : contesta o Pix (via seu banco)
-PSP -> API : notificação de MED (formato do PSP) — mTLS
-API -> DB : INSERT pix.meds + pix.med_events (OPEN)\n(pagamento encontrado pelo endToEndId:\npix.transfers → lançamento → pagamento)
-note right
-  Com um MED aberto, a tarefa RELEASE
-  é adiada até o MED ser encerrado.
+PSP -> API : aviso de MED aberto\n(formato do PSP) — mTLS
+API -> DB : BEGIN\nINSERT pix.meds (pagamento achado\n  pelo endToEndId do Pix recebido)\nINSERT ou reativa jobs (RESOLVE_MED)\nCOMMIT
+API --> PSP : 200
+group tarefa RESOLVE_MED (há MED sem decisão)
+  W -> GW : freeze(paymentId)
+  GW -> GW : bloqueia release() e guarda\no instante do congelamento
+end
+note right of W
+  Enquanto houver MED sem decisão,
+  as tarefas que entregam dinheiro ao
+  lojista (RELEASE, PAY_OUT) esperam.
 end note
-API -> O : alerta no console
-O -> PSP : acompanha a análise e responde\n(portal ou API do PSP)
-alt MED procedente e ainda antes de releaseAt
-  O -> API : "Recuperar valor retido"
-  W -> GW : recover(paymentId, medRef)
-  GW -> GW : require(block.timestamp < releaseAt)\nenvia ao recoveryAddress
-  W -> DB : pix.med_events (RECOVERED);\nlançamento + ethereum.transactions (RECOVERED, txHash)
-  PSP -> P : devolução especial (MED) ao pagador
-  PSP -> API : devolução efetuada (id da devolução)
-  W -> DB : lançamento + pix.transfers (MED_RETURNED, id da devolução)
-else MED não procedente
-  O -> API : encerrar MED
-  W -> DB : pix.med_events (CLOSED)\n(a liberação volta a valer)
-else valor já liberado
-  W -> DB : pix.med_events (NOT_RECOVERABLE)
-  note right
-    Fora do escopo do TCC: cobrança do lojista,
-    reserva e contestação ficam como trabalho futuro.
+
+== Decisão do PSP ==
+PSP -> API : aviso de decisão do MED\n(aceito ou rejeitado) — mTLS
+API -> DB : BEGIN\nINSERT pix.med_decisions\n  (ACCEPTED ou REJECTED)\nreativa jobs (RESOLVE_MED)\nCOMMIT
+API --> PSP : 200
+
+alt todos os MEDs do pagamento rejeitados
+  W -> GW : unfreeze(paymentId)
+  GW -> GW : releaseAt += tempo congelado\n(a liberação volta a valer, com\no prazo que restava)
+else algum MED aceito, com valor ainda retido
+  W -> DB : INSERT jobs (RECOVER) e (REFUND)\nON CONFLICT DO NOTHING
+  group tarefa RECOVER
+    W -> PC : criar pedido: ETH → R$ 100,00\n(valor do Pix original;\nreferência = paymentId)
+    PC --> W : id do pedido, ETH necessário\ne endereço de depósito
+    W -> GW : recover(paymentId, ETH necessário,\nendereço de depósito)
+    GW -> GW : require(retenção congelada e\nendereço na lista de provedores)\nenvia ao provedor, no máximo\no valor retido
+    W -> DB : lançamento + ethereum.transactions\n(RECOVERED, txHash)
+    PC --> W : BRL disponível na conta do Pixeth
+    W -> DB : lançamento + core.conversions\n(id do pedido)
+  end
+  group tarefa REFUND
+    W -> PSP : GET /pix/{endToEndId}\n(devoluções já feitas,\ninclusive pelo próprio PSP)
+    W -> PSP : PUT /pix/{endToEndId}/devolucao/{id}\n(até o valor original,\nmenos o já devolvido)
+    PSP -> P : devolução do Pix
+    W -> DB : lançamento + pix.transfers\n(MED_RETURNED, id da devolução)
+  end
+  W -> GW : unfreeze(paymentId)
+  note right of W
+    Se sobrar ETH na retenção (a cotação
+    subiu), a tarefa RELEASE o entrega
+    ao lojista. Se o retido não bastar,
+    a devolução é parcial.
+  end note
+else algum MED aceito, com valor já liberado
+  note over W, GW
+    Não há o que recuperar; o MED fica
+    registrado. Reserva do lojista e
+    compensação em recebíveis ficam
+    como trabalho futuro.
   end note
 end
 @enduml

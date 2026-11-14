@@ -36,7 +36,7 @@ WA -> DB : lançamento + INSERT jobs (próximo passo)\nUPDATE jobs SET status = 
 
 == Falhas ==
 alt erro no sistema externo
-  WA -> DB : attempts + 1, run_at = agora + espera crescente\n(depois de N tentativas: FAILED para o operador)
+  WA -> DB : attempts + 1, run_at = agora + espera crescente\n(depois de N tentativas, a tarefa fica em FAILED)
 else réplica A cai no meio
   DB -> DB : conexão perdida → transação desfeita,\ntrava liberada
   WB -> DB : pega a mesma tarefa
@@ -48,6 +48,14 @@ end
 EXT -> S : webhook ou evento da blockchain
 S -> DB : INSERT INTO jobs (CONFIRM_PAYMENT, payment_id)\nON CONFLICT (payment_id, type) DO NOTHING
 S --> EXT : 200, inclusive para duplicados
+EXT -> S : aviso de MED (abertura ou decisão)
+S -> DB : INSERT pix.meds ou pix.med_decisions\nINSERT INTO jobs (RESOLVE_MED)\nON CONFLICT (payment_id, type)\nDO UPDATE SET status = 'PENDING',\n  run_at = now()
+note right
+  RESOLVE_MED é reativada a cada
+  aviso: continua única por pagamento
+  e sempre confere a situação de
+  todos os MEDs dele.
+end note
 
 == Ouvinte da blockchain ==
 WA -> DB : pg_try_advisory_lock(ouvinte)

@@ -11,20 +11,22 @@ AWAITING_PAYMENT --> EXPIRED : expires_at sem pagamento
 
 PROCESSING --> COMPLETED : lojista recebeu\n(Pix PAID_OUT ou ETH RELEASED)
 PROCESSING --> REFUNDED : devolvido ao pagador\n(Pix RETURNED ou ETH REFUNDED)
-PROCESSING --> REVERSED : MED procedente\n(ETH RECOVERED)
-PROCESSING --> FAILED : o fluxo automático\nnão concluiu
-FAILED --> PROCESSING : operador reexecuta\nou inicia a devolução
+PROCESSING --> REVERSED : MED aceito e valor devolvido\n(Pix MED_RETURNED)
+PROCESSING --> FAILED : as tentativas automáticas\nse esgotaram
+COMPLETED --> REVERSED : MED aceito depois da liberação\n(devolução feita pelo PSP)
 
 EXPIRED --> REFUNDED : ETH pago depois de expirar,\ndevolvido ao pagador
 
 COMPLETED --> [*]
+FAILED --> [*]
 REFUNDED --> [*]
 REVERSED --> [*]
 EXPIRED --> [*]
 
 note right of PROCESSING
   O estado não é gravado: é derivado do
-  livro-razão. O passo atual (conversão,
-  retenção, envio) está nos lançamentos.
+  livro-razão, das tarefas e do prazo. O
+  passo atual (conversão, retenção, envio)
+  está nos lançamentos.
 end note
 @enduml

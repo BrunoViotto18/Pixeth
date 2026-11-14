@@ -23,14 +23,18 @@ participant "PixethGateway\n(Sepolia)" as GW
 SL -> API : POST /v1/payments {amount: "100.00 BRL",\nsourceRail: PIX, destinationRail: ETHEREUM,\ndestinationId: walletId}\n— Bearer + Idempotency-Key
 API -> DB : core.idempotency_keys tem esta chave?\n→ devolve o pagamento existente (ou 422 se o corpo mudou)
 API -> IDS : GET /v1/rails/ethereum/wallets/{walletId}?view=masked — mTLS\n(existe e pertence ao owner_id do lojista?)
+opt amount em ETH
+  API -> PC : cotação: valor em ETH → BRL
+  PC --> API : valor a pagar em BRL, válido por 15 min
+end
 API -> PSP : PUT /cob/{txid} {expiracao: 900 (= expires_at), valor: "100.00"}
 note right
   txid derivado do paymentId:
   repetir o PUT é seguro.
 end note
 PSP --> API : pixCopiaECola
-API -> DB : BEGIN\nINSERT payments (expires_at = agora + 15 min)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
-API --> SL : 201 {paymentId, checkoutUrl, pixCopiaECola}
+API -> DB : BEGIN\nINSERT payments (expires_at = agora + 15 min)\nINSERT core.idempotency_keys (key, request_hash,\n  resource_id = paymentId)\nINSERT pix.charges (txid, pixCopiaECola, valor a pagar)\nINSERT ethereum.payouts (wallet_id)\nCOMMIT
+API --> SL : 201 {paymentId, checkoutUrl,\namountToPay: "100.00 BRL", pixCopiaECola}
 
 == 2. Pagamento ==
 SL -> P : redireciona para o checkout
@@ -73,7 +77,9 @@ alt pedido recusado (antes do envio ao provedor)
 end
 
 note over W, GW
-  A liberação ao lojista e o tratamento de MED
-  estão em seq-liberacao-e-med.
+  A criação, no nível das classes,
+  está em seq-criar-pagamento-pix-eth.
+  A liberação ao lojista e o tratamento
+  de MED estão em seq-liberacao-e-med.
 end note
 @enduml

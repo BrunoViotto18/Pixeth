@@ -15,21 +15,27 @@ participant ":ConversionProvider" as CONV
 participant "EthereumRail :\nPaymentRail" as RAIL
 participant ":PaymentRepository" as REPO
 
-SL -> API : POST /v1/payments\n{price, ETHEREUM → PIX, keyId}\n+ Idempotency-Key
-API -> ORQ : createPayment(merchant, price,\nETHEREUM, PIX, keyId, idempotencyKey)
+SL -> API : POST /v1/payments\n{amount, ETHEREUM → PIX, keyId}\n+ Idempotency-Key
+API -> ORQ : createPayment(merchant, amount,\nETHEREUM, PIX, keyId, idempotencyKey)
 ORQ -> IDS : pixKeyBelongsTo(keyId, merchant.ownerId)
 IDS --> ORQ : true
-opt price em BRL
-  ORQ -> CONV : quote(BRL, ETH, price)
+opt amount em BRL
+  ORQ -> CONV : quote(BRL, ETH, amount)
   CONV --> ORQ : quote (valor em ETH)
 end
-ORQ -> RAIL : createCharge(paymentId, amount, expiresAt)
+note right of ORQ
+  chargeAmount é o valor que o
+  pagador paga, no ativo do trilho
+  de origem: o próprio amount
+  ou o valor cotado.
+end note
+ORQ -> RAIL : createCharge(paymentId, chargeAmount, expiresAt)
 RAIL --> ORQ : charge : EthereumCharge
 create PO
 ORQ -> PO : «create»(keyId)
 create PAY
-ORQ -> PAY : «create»(paymentId, merchant, price,\nexpiresAt, charge, payout)
+ORQ -> PAY : «create»(paymentId, merchant, amount,\nexpiresAt, charge, payout)
 ORQ -> REPO : insert(payment, idempotencyKey)
 ORQ --> API : payment
-API --> SL : 201 {paymentId, checkoutUrl,\namountToPay, contrato}
+API --> SL : 201 {paymentId, checkoutUrl,\namountToPay, ethereum}
 @enduml
